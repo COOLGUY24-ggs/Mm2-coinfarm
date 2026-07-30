@@ -1,0 +1,336 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "MM2 Auto Coin Farm | Luaroblox_helper",
+   LoadingTitle = "Loading MM2 Script...",
+   LoadingSubtitle = "by Luaroblox_helper",
+   ConfigurationSaving = { 
+      Enabled = true,
+      FolderName = "LuarobloxHelperMM2",
+      FileName = "AutoFarmConfig"
+   },
+   KeySystem = false,
+})
+
+local Tab = Window:CreateTab("Coin Farm", 4483362458)
+local MiscTab = Window:CreateTab("Misc", 4483345998)
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
+local LocalPlayer = Players.LocalPlayer
+
+local autoFarmEnabled = false
+local antiAfkEnabled = false
+local autoResetEnabled = false
+local tweenSpeed = 25 
+local coinMode = "Closest"
+local antiAfkInterval = 15
+local maxAttemptsLimit = 10
+
+local failedAttempts = {}
+local MAX_DISTANCE = 1000
+
+-- Anti-AFK Connection Setup
+LocalPlayer.Idled:Connect(function()
+    if antiAfkEnabled then
+        VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+        
+        Rayfield:Notify({ 
+            Title = "Anti-AFK Triggered", 
+            Content = "Prevented kick due to inactivity!", 
+            Duration = 3 
+        })
+    end
+end)
+
+-- Configurable Timer Loop (Based on Slider Value)
+task.spawn(function()
+    while true do
+        task.wait(antiAfkInterval)
+        if antiAfkEnabled then
+            pcall(function()
+                local character = LocalPlayer.Character
+                local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
+            end)
+        end
+    end
+end)
+
+local function getCollectedCoins()
+    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+    if leaderstats then
+        for _, stat in ipairs(leaderstats:GetChildren()) do
+            if string.lower(stat.Name):find("coin") and (stat:IsA("IntValue") or stat:IsA("NumberValue")) then
+                return stat.Value
+            end
+        end
+    end
+    
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if playerGui then
+        for _, gui in ipairs(playerGui:GetDescendants()) do
+            if gui:IsA("TextLabel") and (string.lower(gui.Name):find("coin") or string.lower(gui.Text):find("/")) then
+                local currentCount = tonumber(string.match(gui.Text, "^(%d+)"))
+                if currentCount then
+                    return currentCount
+                end
+            end
+        end
+    end
+    
+    return 0
+end
+
+local function getSelectedCoin()
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return nil end
+
+    local coinList = {}
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and (obj.Name == "Coin" or obj.Name == "CoinVisual" or obj:FindFirstChild("TouchInterest")) then
+            if obj.Parent and (obj.Parent.Name == "CoinContainer" or obj.Parent.Name == "Coins" or obj.Name == "Coin") then
+                local dist = (rootPart.Position - obj.Position).Magnitude
+                if dist <= MAX_DISTANCE then
+                    table.insert(coinList, obj)
+                end
+            end
+        end
+    end
+
+    if #coinList == 0 then return nil end
+
+    if coinMode == "Closest" then
+        local nearestCoin = nil
+        local shortestDistance = math.huge
+        for _, coin in ipairs(coinList) do
+            local dist = (rootPart.Position - coin.Position).Magnitude
+            if dist < shortestDistance then
+                shortestDistance = dist
+                nearestCoin = coin
+            end
+        end
+        return nearestCoin
+
+    elseif coinMode == "Farthest" then
+        local farthestCoin = nil
+        local longestDistance = -1
+        for _, coin in ipairs(coinList) do
+            local dist = (rootPart.Position - coin.Position).Magnitude
+            if dist > longestDistance then
+                longestDistance = dist
+                farthestCoin = coin
+            end
+        end
+        return farthestCoin
+
+    elseif coinMode == "Random" then
+        return coinList[math.random(1, #coinList)]
+    end
+
+    return coinList[1]
+end
+
+local function smoothTweenToPosition(targetCFrame)
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    
+    if not rootPart or not humanoid then return end
+
+    local oldPlatformStand = humanoid.PlatformStand
+    humanoid.PlatformStand = true
+
+    local distance = (rootPart.Position - targetCFrame.Position).Magnitude
+    if distance <= 0 then 
+        humanoid.PlatformStand = oldPlatformStand
+        return 
+    end
+    
+    local duration = distance / tweenSpeed
+    local startTime = tick()
+    local startCFrame = rootPart.CFrame
+
+    while tick() - startTime < duration do
+        if not autoFarmEnabled then break end
+        if not LocalPlayer.Character or not rootPart.Parent then break end
+        
+        local alpha = math.clamp((tick() - startTime) / duration, 0, 1)
+        rootPart.CFrame = startCFrame:Lerp(targetCFrame, alpha)
+        
+        rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        
+        RunService.Heartbeat:Wait()
+    end
+    
+    if rootPart and rootPart.Parent then
+        rootPart.CFrame = targetCFrame
+    end
+    
+    if humanoid and humanoid.Parent then
+        humanoid.PlatformStand = oldPlatformStand
+    end
+end
+
+-- Coin Farm Loop with Stuck/Attempt Counter and Reset Logic
+task.spawn(function()
+    while true do
+        if autoFarmEnabled then
+            pcall(function()
+                local currentCoins = getCollectedCoins()
+                if currentCoins >= 40 then
+                    autoFarmEnabled = false
+                    Rayfield:Notify({ 
+                        Title = "Auto Farm Completed", 
+                        Content = "Reached 40 collected coins! Farm stopped automatically.", 
+                        Duration = 5 
+                    })
+                    return
+                end
+
+                local coin = getSelectedCoin()
+                if coin then
+                    local targetPosKey = tostring(math.floor(coin.Position.X)) .. "_" .. tostring(math.floor(coin.Position.Y)) .. "_" .. tostring(math.floor(coin.Position.Z))
+                    
+                    smoothTweenToPosition(coin.CFrame)
+                    task.wait(0.1)
+
+                    if coin and coin.Parent then
+                        failedAttempts[targetPosKey] = (failedAttempts[targetPosKey] or 0) + 1
+                        if autoResetEnabled and failedAttempts[targetPosKey] >= maxAttemptsLimit then
+                            failedAttempts[targetPosKey] = 0
+                            local character = LocalPlayer.Character
+                            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+                            if humanoid then
+                                Rayfield:Notify({ 
+                                    Title = "Stuck Detected", 
+                                    Content = "Failed to reach coin " .. tostring(maxAttemptsLimit) .. " times! Resetting character...", 
+                                    Duration = 3 
+                                })
+                                humanoid.Health = 0
+                                task.wait(4)
+                            end
+                        end
+                    else
+                        failedAttempts[targetPosKey] = nil
+                    end
+                else
+                    task.wait(1)
+                end
+            end)
+        end
+        task.wait(0.1)
+    end
+end)
+
+-- Coin Farm Tab UI
+Tab:CreateToggle({
+   Name = "Auto Coin Farm (Stops at 40)",
+   CurrentValue = false,
+   Flag = "AutoCoinFarm",
+   Callback = function(Value)
+      autoFarmEnabled = Value
+      if Value then
+         Rayfield:Notify({ Title = "Auto Farm", Content = "Coin farm started safely!", Duration = 3 })
+      else
+         Rayfield:Notify({ Title = "Auto Farm", Content = "Coin farm stopped.", Duration = 3 })
+      end
+   end,
+})
+
+Tab:CreateToggle({
+   Name = "Auto Reset when Stuck",
+   CurrentValue = false,
+   Flag = "AutoResetStuck",
+   Callback = function(Value)
+      autoResetEnabled = Value
+      if Value then
+         Rayfield:Notify({ Title = "Auto Reset", Content = "Auto reset on stuck enabled!", Duration = 3 })
+      else
+         Rayfield:Notify({ Title = "Auto Reset", Content = "Auto reset disabled.", Duration = 3 })
+      end
+   end,
+})
+
+Tab:CreateSlider({
+   Name = "Stuck Attempts Before Reset",
+   Range = {4, 10},
+   Increment = 1,
+   CurrentValue = 10,
+   Suffix = "times",
+   Flag = "MaxAttemptsSlider",
+   Callback = function(Value)
+      maxAttemptsLimit = Value
+   end,
+})
+
+Tab:CreateDropdown({
+   Name = "Coin Mode",
+   Options = {"Closest", "Random", "Farthest"},
+   CurrentOption = "Closest",
+   Flag = "CoinModeDropdown",
+   Callback = function(Option)
+      local success, err = pcall(function()
+         if type(Option) == "table" then
+            coinMode = Option[1] or "Closest"
+         else
+            coinMode = tostring(Option)
+         end
+      end)
+      
+      if not success then
+         coinMode = "Closest"
+      end
+
+      Rayfield:Notify({ Title = "Coin Mode", Content = "Mode changed to: " .. tostring(coinMode), Duration = 2 })
+   end,
+})
+
+Tab:CreateSlider({
+   Name = "Farm Speed (Tween)",
+   Range = {10, 30},
+   Increment = 1,
+   CurrentValue = 25,
+   Suffix = "studs/s",
+   Flag = "FarmSpeed",
+   Callback = function(Value)
+      tweenSpeed = Value
+   end,
+})
+
+-- Misc Tab UI (Anti-AFK)
+MiscTab:CreateToggle({
+   Name = "Anti-AFK Toggle",
+   CurrentValue = false,
+   Flag = "AntiAfkToggle",
+   Callback = function(Value)
+      antiAfkEnabled = Value
+      if Value then
+         Rayfield:Notify({ Title = "Anti-AFK", Content = "Anti-AFK activated successfully!", Duration = 3 })
+      else
+         Rayfield:Notify({ Title = "Anti-AFK", Content = "Anti-AFK deactivated.", Duration = 3 })
+      end
+   end,
+})
+
+MiscTab:CreateSlider({
+   Name = "Anti-AFK Interval",
+   Range = {15, 60},
+   Increment = 1,
+   CurrentValue = 15,
+   Suffix = "s",
+   Flag = "AntiAfkIntervalSlider",
+   Callback = function(Value)
+      antiAfkInterval = Value
+   end,
+})
+
+Rayfield:LoadConfiguration()
