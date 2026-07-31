@@ -24,6 +24,7 @@ local Camera = workspace.CurrentCamera
 local autoFarmEnabled = false
 local antiAfkEnabled = false
 local autoResetEnabled = false
+local undergroundFarmEnabled = false
 local tweenSpeed = 25 
 local coinMode = "Closest"
 local antiAfkInterval = 15
@@ -89,6 +90,15 @@ local function getCollectedCoins()
     return 0
 end
 
+local function isBlacklistedPosition(pos)
+    local blacklistedCenter = Vector3.new(-21, 242, 9095)
+    local distance = (Vector3.new(pos.X, pos.Y, pos.Z) - blacklistedCenter).Magnitude
+    if distance <= 15 then
+        return true
+    end
+    return false
+end
+
 local function getSelectedCoin()
     local character = LocalPlayer.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
@@ -99,9 +109,11 @@ local function getSelectedCoin()
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") and (obj.Name == "Coin" or obj.Name == "CoinVisual" or obj:FindFirstChild("TouchInterest")) then
             if obj.Parent and (obj.Parent.Name == "CoinContainer" or obj.Parent.Name == "Coins" or obj.Name == "Coin") then
-                local dist = (rootPart.Position - obj.Position).Magnitude
-                if dist <= MAX_DISTANCE then
-                    table.insert(coinList, obj)
+                if not isBlacklistedPosition(obj.Position) then
+                    local dist = (rootPart.Position - obj.Position).Magnitude
+                    if dist <= MAX_DISTANCE then
+                        table.insert(coinList, obj)
+                    end
                 end
             end
         end
@@ -194,35 +206,6 @@ local function getWeapon(weaponName)
     return nil
 end
 
-local function findMurderer()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local char = player.Character
-            if char:FindFirstChild("Knife") or (player.Backpack and player.Backpack:FindFirstChild("Knife")) then
-                return player
-            end
-        end
-    end
-    return nil
-end
-
-local function clickScreenCenter()
-    pcall(function()
-        local viewportSize = Camera.ViewportSize
-        local centerX = (viewportSize.X / 2) + 25
-        local centerY = viewportSize.Y / 2
-        local screenPos = Vector2.new(centerX, centerY)
-
-        VirtualUser:Button1Down(screenPos)
-        task.wait(0.05)
-        VirtualUser:Button1Up(screenPos)
-    end)
-end
-
-local function isSheriff()
-    return getWeapon("Gun") ~= nil
-end
-
 local function handleStuckCombat()
     if isExecutingCombat then return end
     isExecutingCombat = true
@@ -239,8 +222,16 @@ local function handleStuckCombat()
     local knife = getWeapon("Knife")
     local gun = getWeapon("Gun")
 
-    if autoResetEnabled and isSheriff() then
-        Rayfield:Notify({ Title = "Sheriff Detected", Content = "You are Sheriff! Resetting character...", Duration = 3 })
+    if gun then
+        Rayfield:Notify({ Title = "Gun Detected", Content = "Gun found in inventory while stuck! Setting HP to 0...", Duration = 3 })
+        humanoid.Health = 0
+        task.wait(4)
+        isExecutingCombat = false
+        return
+    end
+
+    if autoResetEnabled and not gun and not knife then
+        Rayfield:Notify({ Title = "Stuck Detected", Content = "No weapon found! Resetting character...", Duration = 3 })
         humanoid.Health = 0
         task.wait(4)
         isExecutingCombat = false
@@ -248,7 +239,7 @@ local function handleStuckCombat()
     end
 
     if knife then
-        Rayfield:Notify({ Title = "Stuck Combat", Content = "Equipping Knife and killing everyone...", Duration = 3 })
+        Rayfield:Notify({ Title = "Stuck Combat", Content = "Equipping Knife and killing EVERYONE in the server...", Duration = 3 })
         humanoid:EquipTool(knife)
         
         local targets = {}
@@ -268,66 +259,15 @@ local function handleStuckCombat()
 
             while autoFarmEnabled and targetRoot and targetHum and targetHum.Health > 0 and humanoid.Health > 0 do
                 targetRoot.CFrame = rootPart.CFrame * CFrame.new(0, 0, -2)
-                clickScreenCenter()
-                task.wait(0.2)
+                task.wait(0.15)
             end
-        end
-
-    elseif gun then
-        Rayfield:Notify({ Title = "Stuck Combat", Content = "Aimlocking & Firing 3 studs in front of you...", Duration = 3 })
-        humanoid:EquipTool(gun)
-        
-        LocalPlayer.CameraMinZoomDistance = 0.5
-        LocalPlayer.CameraMaxZoomDistance = 0.5
-        
-        local murderer = findMurderer()
-        local startTime = tick()
-        
-        while autoFarmEnabled and murderer and murderer.Character and humanoid.Health > 0 and (tick() - startTime < 8) do
-            local mRoot = murderer.Character:FindFirstChild("HumanoidRootPart")
-            local mHum = murderer.Character:FindFirstChild("Humanoid") or murderer.Character:FindFirstChildOfClass("Humanoid")
-            if not mRoot or not mHum or mHum.Health <= 0 then break end
-
-            mRoot.CFrame = rootPart.CFrame * CFrame.new(0, 0, -3)
-            
-            local aimTargetPos = mRoot.Position + Vector3.new(0, 0.5, 0)
-            Camera.CFrame = CFrame.new(Camera.CFrame.Position, aimTargetPos)
-            
-            pcall(function()
-                local gunTool = character:FindFirstChild("Gun") or LocalPlayer.Backpack:FindFirstChild("Gun")
-                if gunTool then
-                    if gunTool.Parent ~= character then
-                        humanoid:EquipTool(gunTool)
-                    end
-                    local shootRemote = gunTool:FindFirstChild("Shoot")
-                    if shootRemote then
-                        local args = {
-                            CFrame.new(rootPart.Position, mRoot.Position),
-                            mRoot.CFrame
-                        }
-                        shootRemote:FireServer(unpack(args))
-                    end
-                end
-            end)
-            
-            clickScreenCenter()
-            task.wait(0.1)
-        end
-        
-        LocalPlayer.CameraMinZoomDistance = 10
-        LocalPlayer.CameraMaxZoomDistance = 400
-    else
-        if autoResetEnabled and humanoid then
-            Rayfield:Notify({ Title = "Stuck Detected", Content = "No weapon found! Resetting character...", Duration = 3 })
-            humanoid.Health = 0
-            task.wait(4)
         end
     end
 
     isExecutingCombat = false
 end
 
--- Coin Farm Loop with Stuck/Attempt Counter and Combat Logic
+-- Coin Farm Loop: Slaat de verboden coördinaten permanent over
 task.spawn(function()
     while true do
         if autoFarmEnabled and not isExecutingCombat then
@@ -347,11 +287,32 @@ task.spawn(function()
                 if coin then
                     local targetPosKey = tostring(math.floor(coin.Position.X)) .. "_" .. tostring(math.floor(coin.Position.Y)) .. "_" .. tostring(math.floor(coin.Position.Z))
                     
-                    smoothTweenToPosition(coin.CFrame)
-                    
-                    local char = LocalPlayer.Character
-                    local root = char and char:FindFirstChild("HumanoidRootPart")
-                    if coin and coin.Parent and root then
+                    if undergroundFarmEnabled then
+                        local belowCoinCFrame = coin.CFrame * CFrame.new(0, -5, 0)
+                        smoothTweenToPosition(belowCoinCFrame)
+                        
+                        local char = LocalPlayer.Character
+                        local root = char and char:FindFirstChild("HumanoidRootPart")
+                        if not coin or not coin.Parent or not root then return end
+
+                        root.CFrame = belowCoinCFrame
+                        task.wait(0.05)
+
+                        if coin and coin.Parent then
+                            smoothTweenToPosition(coin.CFrame)
+                            root.CFrame = coin.CFrame
+                            task.wait(0.05)
+
+                            smoothTweenToPosition(belowCoinCFrame)
+                            root.CFrame = belowCoinCFrame
+                        end
+                    else
+                        smoothTweenToPosition(coin.CFrame)
+                        
+                        local char = LocalPlayer.Character
+                        local root = char and char:FindFirstChild("HumanoidRootPart")
+                        if not coin or not coin.Parent or not root then return end
+
                         root.CFrame = coin.CFrame
                         task.wait(0.1)
                     end
@@ -366,7 +327,7 @@ task.spawn(function()
                         failedAttempts[targetPosKey] = nil
                     end
                 else
-                    task.wait(1)
+                    task.wait(0.5)
                 end
             end)
         end
@@ -390,13 +351,27 @@ Tab:CreateToggle({
 })
 
 Tab:CreateToggle({
+   Name = "underground coinfarm modus",
+   CurrentValue = false,
+   Flag = "UndergroundCoinfarmModusToggle",
+   Callback = function(Value)
+      undergroundFarmEnabled = Value
+      if Value then
+         Rayfield:Notify({ Title = "Underground Modus", Content = "Underground coinfarm modus enabled (5 studs deep)!", Duration = 3 })
+      else
+         Rayfield:Notify({ Title = "Underground Modus", Content = "Underground coinfarm modus disabled (normal flight).", Duration = 3 })
+      end
+   end,
+})
+
+Tab:CreateToggle({
    Name = "Auto Reset when Stuck",
    CurrentValue = false,
    Flag = "AutoResetStuck",
    Callback = function(Value)
       autoResetEnabled = Value
       if Value then
-         Rayfield:Notify({ Title = "Auto Reset", Content = "Auto reset on stuck / sheriff enabled!", Duration = 3 })
+         Rayfield:Notify({ Title = "Auto Reset", Content = "Auto reset on stuck enabled!", Duration = 3 })
       else
          Rayfield:Notify({ Title = "Auto Reset", Content = "Auto reset disabled.", Duration = 3 })
       end
