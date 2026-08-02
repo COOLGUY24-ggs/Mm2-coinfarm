@@ -285,7 +285,7 @@ local function handleStuckCombat()
     isExecutingCombat = false
 end
 
--- Coin Farm Loop: Slaat de verboden coördinaten permanent over
+-- Coin Farm Loop: Wacht streng tot er een geldige coin is voordat hij ergens heen gaat
 task.spawn(function()
     while true do
         if autoFarmEnabled and not isExecutingCombat then
@@ -301,25 +301,33 @@ task.spawn(function()
                     return
                 end
 
-                local coin = getSelectedCoin()
-                if coin then
+                local coin = nil
+                while autoFarmEnabled and not coin do
+                    coin = getSelectedCoin()
+                    if not coin or not coin.Parent or not coin:IsDescendantOf(workspace) then
+                        coin = nil
+                        task.wait(0.2)
+                    end
+                end
+
+                if coin and coin.Parent and coin:IsDescendantOf(workspace) then
                     local targetPosKey = tostring(math.floor(coin.Position.X)) .. "_" .. tostring(math.floor(coin.Position.Y)) .. "_" .. tostring(math.floor(coin.Position.Z))
                     
                     if undergroundFarmEnabled then
                         local belowCoinCFrame = coin.CFrame * CFrame.new(0, -5, 0)
                         local reached = smoothTweenToPosition(belowCoinCFrame, 1.5, coin)
-                        if not reached or not coin or not coin.Parent then return end
+                        if not reached or not coin or not coin.Parent or not coin:IsDescendantOf(workspace) then return end
                         
                         local char = LocalPlayer.Character
                         local root = char and char:FindFirstChild("HumanoidRootPart")
-                        if not coin or not coin.Parent or not root then return end
+                        if not coin or not coin.Parent or not coin:IsDescendantOf(workspace) or not root then return end
 
                         root.CFrame = belowCoinCFrame
                         task.wait(0.05)
 
-                        if coin and coin.Parent then
+                        if coin and coin.Parent and coin:IsDescendantOf(workspace) then
                             reached = smoothTweenToPosition(coin.CFrame, 1.5, coin)
-                            if not reached or not coin or not coin.Parent then return end
+                            if not reached or not coin or not coin.Parent or not coin:IsDescendantOf(workspace) then return end
                             
                             root.CFrame = coin.CFrame
                             task.wait(0.05)
@@ -329,17 +337,17 @@ task.spawn(function()
                         end
                     else
                         local reached = smoothTweenToPosition(coin.CFrame, 1.5, coin)
-                        if not reached or not coin or not coin.Parent then return end
+                        if not reached or not coin or not coin.Parent or not coin:IsDescendantOf(workspace) then return end
                         
                         local char = LocalPlayer.Character
                         local root = char and char:FindFirstChild("HumanoidRootPart")
-                        if not coin or not coin.Parent or not root then return end
+                        if not coin or not coin.Parent or not coin:IsDescendantOf(workspace) or not root then return end
 
                         root.CFrame = coin.CFrame
                         task.wait(0.1)
                     end
 
-                    if coin and coin.Parent then
+                    if coin and coin.Parent and coin:IsDescendantOf(workspace) then
                         failedAttempts[targetPosKey] = (failedAttempts[targetPosKey] or 0) + 1
                         if failedAttempts[targetPosKey] >= maxAttemptsLimit then
                             failedAttempts[targetPosKey] = 0
@@ -349,7 +357,7 @@ task.spawn(function()
                         failedAttempts[targetPosKey] = nil
                     end
                 else
-                    task.wait(0.5)
+                    task.wait(0.2)
                 end
             end)
         end
