@@ -152,7 +152,7 @@ local function getSelectedCoin()
     return coinList[1]
 end
 
-local function smoothTweenToPosition(targetCFrame)
+local function smoothTweenToPosition(targetCFrame, earlyDistance)
     local character = LocalPlayer.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -171,11 +171,17 @@ local function smoothTweenToPosition(targetCFrame)
     local duration = distance / tweenSpeed
     local startTime = tick()
     local startCFrame = rootPart.CFrame
+    local stopDistance = earlyDistance or 0
 
     while tick() - startTime < duration do
         if not autoFarmEnabled then break end
         if not LocalPlayer.Character or not rootPart.Parent then break end
         
+        local currentDist = (rootPart.Position - targetCFrame.Position).Magnitude
+        if stopDistance > 0 and currentDist <= stopDistance then
+            break
+        end
+
         local alpha = math.clamp((tick() - startTime) / duration, 0, 1)
         rootPart.CFrame = startCFrame:Lerp(targetCFrame, alpha)
         
@@ -185,7 +191,7 @@ local function smoothTweenToPosition(targetCFrame)
         RunService.Heartbeat:Wait()
     end
     
-    if rootPart and rootPart.Parent then
+    if rootPart and rootPart.Parent and stopDistance <= 0 then
         rootPart.CFrame = targetCFrame
     end
     
@@ -289,7 +295,7 @@ task.spawn(function()
                     
                     if undergroundFarmEnabled then
                         local belowCoinCFrame = coin.CFrame * CFrame.new(0, -5, 0)
-                        smoothTweenToPosition(belowCoinCFrame)
+                        smoothTweenToPosition(belowCoinCFrame, 1.5)
                         
                         local char = LocalPlayer.Character
                         local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -299,15 +305,15 @@ task.spawn(function()
                         task.wait(0.05)
 
                         if coin and coin.Parent then
-                            smoothTweenToPosition(coin.CFrame)
+                            smoothTweenToPosition(coin.CFrame, 1.5)
                             root.CFrame = coin.CFrame
                             task.wait(0.05)
 
-                            smoothTweenToPosition(belowCoinCFrame)
+                            smoothTweenToPosition(belowCoinCFrame, 1.5)
                             root.CFrame = belowCoinCFrame
                         end
                     else
-                        smoothTweenToPosition(coin.CFrame)
+                        smoothTweenToPosition(coin.CFrame, 1.5)
                         
                         local char = LocalPlayer.Character
                         local root = char and char:FindFirstChild("HumanoidRootPart")
