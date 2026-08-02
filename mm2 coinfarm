@@ -152,12 +152,12 @@ local function getSelectedCoin()
     return coinList[1]
 end
 
-local function smoothTweenToPosition(targetCFrame, earlyDistance)
+local function smoothTweenToPosition(targetCFrame, earlyDistance, targetCoinInstance)
     local character = LocalPlayer.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     
-    if not rootPart or not humanoid then return end
+    if not rootPart or not humanoid then return false end
 
     local oldPlatformStand = humanoid.PlatformStand
     humanoid.PlatformStand = true
@@ -165,7 +165,7 @@ local function smoothTweenToPosition(targetCFrame, earlyDistance)
     local distance = (rootPart.Position - targetCFrame.Position).Magnitude
     if distance <= 0 then 
         humanoid.PlatformStand = oldPlatformStand
-        return 
+        return true 
     end
     
     local duration = distance / tweenSpeed
@@ -177,6 +177,11 @@ local function smoothTweenToPosition(targetCFrame, earlyDistance)
         if not autoFarmEnabled then break end
         if not LocalPlayer.Character or not rootPart.Parent then break end
         
+        if targetCoinInstance and (not targetCoinInstance.Parent or not targetCoinInstance:IsDescendantOf(workspace)) then
+            humanoid.PlatformStand = oldPlatformStand
+            return false
+        end
+
         local currentDist = (rootPart.Position - targetCFrame.Position).Magnitude
         if stopDistance > 0 and currentDist <= stopDistance then
             break
@@ -191,6 +196,11 @@ local function smoothTweenToPosition(targetCFrame, earlyDistance)
         RunService.Heartbeat:Wait()
     end
     
+    if targetCoinInstance and (not targetCoinInstance.Parent or not targetCoinInstance:IsDescendantOf(workspace)) then
+        humanoid.PlatformStand = oldPlatformStand
+        return false
+    end
+
     if rootPart and rootPart.Parent and stopDistance <= 0 then
         rootPart.CFrame = targetCFrame
     end
@@ -198,6 +208,8 @@ local function smoothTweenToPosition(targetCFrame, earlyDistance)
     if humanoid and humanoid.Parent then
         humanoid.PlatformStand = oldPlatformStand
     end
+
+    return true
 end
 
 local function getWeapon(weaponName)
@@ -295,7 +307,8 @@ task.spawn(function()
                     
                     if undergroundFarmEnabled then
                         local belowCoinCFrame = coin.CFrame * CFrame.new(0, -5, 0)
-                        smoothTweenToPosition(belowCoinCFrame, 1.5)
+                        local reached = smoothTweenToPosition(belowCoinCFrame, 1.5, coin)
+                        if not reached or not coin or not coin.Parent then return end
                         
                         local char = LocalPlayer.Character
                         local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -305,15 +318,18 @@ task.spawn(function()
                         task.wait(0.05)
 
                         if coin and coin.Parent then
-                            smoothTweenToPosition(coin.CFrame, 1.5)
+                            reached = smoothTweenToPosition(coin.CFrame, 1.5, coin)
+                            if not reached or not coin or not coin.Parent then return end
+                            
                             root.CFrame = coin.CFrame
                             task.wait(0.05)
 
-                            smoothTweenToPosition(belowCoinCFrame, 1.5)
+                            smoothTweenToPosition(belowCoinCFrame, 1.5, nil)
                             root.CFrame = belowCoinCFrame
                         end
                     else
-                        smoothTweenToPosition(coin.CFrame, 1.5)
+                        local reached = smoothTweenToPosition(coin.CFrame, 1.5, coin)
+                        if not reached or not coin or not coin.Parent then return end
                         
                         local char = LocalPlayer.Character
                         local root = char and char:FindFirstChild("HumanoidRootPart")
