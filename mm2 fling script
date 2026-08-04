@@ -1,0 +1,220 @@
+--[[
+    Project: MM2 Long-Hold Multi-Hit TouchFling Script (Rayfield UI)
+    Language: English (as requested for scripts)
+]]
+
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "MM2 Long-Hold Multi-Hit Fling",
+   LoadingTitle = "Loading Menu...",
+   LoadingSubtitle = "by Helper",
+   ConfigurationSaving = { Enabled = false },
+   KeySystem = false,
+})
+
+local Tab = Window:CreateTab("Fling", 4483362458)
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+local targetPlayerName = ""
+local isFlinging = false
+
+local function getRoot(char)
+    return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+end
+
+local function executeLongHoldTouchFling(targetChar)
+    if isFlinging then return end
+    local localChar = LocalPlayer.Character
+    if not localChar then return end
+    
+    local localRoot = getRoot(localChar)
+    local targetRoot = getRoot(targetChar)
+    local humanoid = localChar:FindFirstChild("Humanoid")
+    
+    if not localRoot or not targetRoot or not humanoid then return end
+    
+    isFlinging = true
+    
+    local startCFrame = localRoot.CFrame
+    
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+    humanoid.PlatformStand = true
+    
+    if localChar:FindFirstChild("Humanoid") then
+        localChar.Humanoid.BreakJointsOnDeath = false
+    end
+    
+    for _, part in ipairs(localChar:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = false
+        end
+    end
+    
+    -- Herhaal 15 keer met elke keer 0,3 seconden wachten en 2 seconden in de target blijven gestackt
+    task.spawn(function()
+        for i = 1, 15 do
+            if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("Humanoid") or LocalPlayer.Character.Humanoid.Health <= 0 then
+                break
+            end
+            
+            local currentTargetRoot = getRoot(targetChar)
+            if not currentTargetRoot then break end
+            
+            -- Teleporteer naar de target en geef de fysieke klap
+            localRoot.CFrame = currentTargetRoot.CFrame
+            localRoot.Velocity = Vector3.new(25000, 25000, 25000)
+            localRoot.RotVelocity = Vector3.new(35000, 35000, 35000)
+            
+            -- Blijf 2 seconden lang in de target gestackt met continue velocity update
+            local holdStartTime = tick()
+            local holdConnection
+            holdConnection = RunService.Heartbeat:Connect(function()
+                local freshTargetRoot = getRoot(targetChar)
+                if freshTargetRoot and localRoot then
+                    localRoot.CFrame = freshTargetRoot.CFrame
+                    localRoot.Velocity = Vector3.new(25000, 25000, 25000)
+                    localRoot.RotVelocity = Vector3.new(35000, 35000, 35000)
+                end
+                
+                if tick() - holdStartTime >= 2.0 then
+                    holdConnection:Disconnect()
+                end
+            end)
+            
+            -- Wacht totdat de 2 seconden hold voorbij is
+            task.wait(2.0)
+            if holdConnection.Connected then
+                holdConnection:Disconnect()
+            end
+            
+            -- Wacht 0,3 seconden voordat de volgende herhaling start (behalve bij de laatste iteratie)
+            if i < 15 then
+                task.wait(0.3)
+            end
+        end
+        
+        -- Na alle herhalingen alles netjes herstellen en terugkeren naar de startpositie
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            local currentHumanoid = LocalPlayer.Character.Humanoid
+            currentHumanoid.PlatformStand = false
+            currentHumanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+            currentHumanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+        end
+        
+        for _, part in ipairs(localChar:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+        
+        if localRoot then
+            localRoot.Velocity = Vector3.new(0, 0, 0)
+            localRoot.RotVelocity = Vector3.new(0, 0, 0)
+            localRoot.CFrame = startCFrame
+        end
+        
+        task.wait(0.05)
+        if localRoot then
+            localRoot.Velocity = Vector3.new(0, 0, 0)
+            localRoot.RotVelocity = Vector3.new(0, 0, 0)
+        end
+        
+        isFlinging = false
+        
+        Rayfield:Notify({
+           Title = "Sequence Complete",
+           Content = "Finished all 15 long-hold loops and returned safely!",
+           Duration = 3,
+        })
+    end)
+end
+
+Tab:CreateInput({
+   Name = "Target Player Name",
+   PlaceholderText = "Enter full or partial name",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(text)
+      targetPlayerName = text
+   end,
+})
+
+Tab:CreateButton({
+   Name = "Run Long-Hold TouchFling",
+   Callback = function()
+      local target = nil
+      for _, player in ipairs(Players:GetPlayers()) do
+         if player ~= LocalPlayer and string.sub(string.lower(player.Name), 1, string.len(targetPlayerName)) == string.lower(targetPlayerName) then
+            target = player
+            break
+         end
+      end
+      
+      if target and target.Character then
+         executeLongHoldTouchFling(target.Character)
+      else
+         Rayfield:Notify({
+            Title = "Error",
+            Content = "Player not found!",
+            Duration = 3,
+         })
+      end
+   end,
+})
+
+Tab:CreateButton({
+   Name = "Fling Murderer Safely",
+   Callback = function()
+      local murderer = nil
+      
+      for _, player in ipairs(Players:GetPlayers()) do
+         if player ~= LocalPlayer then
+            local char = player.Character
+            local backpack = player:FindFirstChild("Backpack")
+            local hasKnife = false
+            
+            if char then
+               for _, item in ipairs(char:GetChildren()) do
+                  if item:IsA("Tool") and (string.find(string.lower(item.Name), "knife") or string.lower(item.Name) == "knife") then
+                     hasKnife = true
+                     break
+                  end
+               end
+            end
+            
+            if not hasKnife and backpack then
+               for _, item in ipairs(backpack:GetChildren()) do
+                  if item:IsA("Tool") and (string.find(string.lower(item.Name), "knife") or string.lower(item.Name) == "knife") then
+                     hasKnife = true
+                     break
+                  end
+               end
+            end
+            
+            if hasKnife then
+               murderer = player
+               break
+            end
+         end
+      end
+      
+      if murderer and murderer.Character then
+         Rayfield:Notify({
+            Title = "Murderer Found!",
+            Content = "Executing long-hold sequence on " .. murderer.Name,
+            Duration = 3,
+         })
+         executeLongHoldTouchFling(murderer.Character)
+      else
+         Rayfield:Notify({
+            Title = "Error",
+            Content = "No Murderer with a knife found yet!",
+            Duration = 3,
+         })
+      end
+   end,
+})
