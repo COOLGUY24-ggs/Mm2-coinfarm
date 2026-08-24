@@ -1,12 +1,12 @@
 --[[
-    Project: MM2 Long-Hold Multi-Hit TouchFling Script (Rayfield UI)
-    Language: English (as requested for scripts)
+    Project: MM2 Dynamic Prediction Continuous Fling
+    Language: English
 ]]
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "MM2 Long-Hold Multi-Hit Fling",
+   Name = "MM2 Ultimate Fling",
    LoadingTitle = "Loading Menu...",
    LoadingSubtitle = "by Helper",
    ConfigurationSaving = { Enabled = false },
@@ -21,12 +21,45 @@ local LocalPlayer = Players.LocalPlayer
 
 local targetPlayerName = ""
 local isFlinging = false
+local antiFlingEnabled = false
+local antiFlingConnection = nil
 
 local function getRoot(char)
     return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
 end
 
-local function executeLongHoldTouchFling(targetChar)
+-- Anti-Fling Logic
+local function toggleAntiFling(state)
+    antiFlingEnabled = state
+    
+    if antiFlingEnabled then
+        if not antiFlingConnection then
+            antiFlingConnection = RunService.Stepped:Connect(function()
+                if not antiFlingEnabled then return end
+                
+                local localChar = LocalPlayer.Character
+                if not localChar then return end
+                
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character then
+                        for _, targetPart in ipairs(player.Character:GetDescendants()) do
+                            if targetPart:IsA("BasePart") then
+                                targetPart.CanCollide = false
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    else
+        if antiFlingConnection then
+            antiFlingConnection:Disconnect()
+            antiFlingConnection = nil
+        end
+    end
+end
+
+local function executeFlingUntilDead(targetChar)
     if isFlinging then return end
     local localChar = LocalPlayer.Character
     if not localChar then return end
@@ -34,105 +67,136 @@ local function executeLongHoldTouchFling(targetChar)
     local localRoot = getRoot(localChar)
     local targetRoot = getRoot(targetChar)
     local humanoid = localChar:FindFirstChild("Humanoid")
+    local targetHumanoid = targetChar:FindFirstChild("Humanoid")
     
-    if not localRoot or not targetRoot or not humanoid then return end
+    if not localRoot or not targetRoot or not humanoid or not targetHumanoid then return end
     
     isFlinging = true
+    local previousAntiFlingState = antiFlingEnabled
+    
+    if previousAntiFlingState then
+        toggleAntiFling(false)
+    end
     
     local startCFrame = localRoot.CFrame
     
-    humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-    humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
     humanoid.PlatformStand = true
     
-    if localChar:FindFirstChild("Humanoid") then
-        localChar.Humanoid.BreakJointsOnDeath = false
-    end
-    
-    for _, part in ipairs(localChar:GetDescendants()) do
+    -- Force collision on local root
+    for _, part in ipairs(localChar:GetChildren()) do
         if part:IsA("BasePart") then
-            part.CanCollide = false
+            part.CanCollide = (part == localRoot)
         end
     end
     
-    -- Herhaal 15 keer met elke keer 0,3 seconden wachten en 2 seconden in de target blijven gestackt
+    -- Physics force elements
+    local bAV = Instance.new("BodyAngularVelocity")
+    bAV.Name = "FlingForce"
+    bAV.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    bAV.AngularVelocity = Vector3.new(0, 999999, 0)
+    bAV.Parent = localRoot
+
+    local bV = Instance.new("BodyVelocity")
+    bV.Name = "FlingMove"
+    bV.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    bV.Velocity = Vector3.new(0, 0, 0)
+    bV.Parent = localRoot
+    
     task.spawn(function()
-        for i = 1, 15 do
+        local connection
+        local toggleJitter = false
+        
+        -- High-frequency Heartbeat tracking for moving targets
+        connection = RunService.Heartbeat:Connect(function()
             if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("Humanoid") or LocalPlayer.Character.Humanoid.Health <= 0 then
-                break
+                connection:Disconnect()
+                return
             end
             
-            local currentTargetRoot = getRoot(targetChar)
-            if not currentTargetRoot then break end
+            local freshTargetRoot = getRoot(targetChar)
+            local freshTargetHumanoid = targetChar:FindFirstChild("Humanoid")
             
-            -- Teleporteer naar de target en geef de fysieke klap
-            localRoot.CFrame = currentTargetRoot.CFrame
-            localRoot.Velocity = Vector3.new(25000, 25000, 25000)
-            localRoot.RotVelocity = Vector3.new(35000, 35000, 35000)
-            
-            -- Blijf 2 seconden lang in de target gestackt met continue velocity update
-            local holdStartTime = tick()
-            local holdConnection
-            holdConnection = RunService.Heartbeat:Connect(function()
-                local freshTargetRoot = getRoot(targetChar)
-                if freshTargetRoot and localRoot then
-                    localRoot.CFrame = freshTargetRoot.CFrame
-                    localRoot.Velocity = Vector3.new(25000, 25000, 25000)
-                    localRoot.RotVelocity = Vector3.new(35000, 35000, 35000)
-                end
-                
-                if tick() - holdStartTime >= 2.0 then
-                    holdConnection:Disconnect()
-                end
-            end)
-            
-            -- Wacht totdat de 2 seconden hold voorbij is
-            task.wait(2.0)
-            if holdConnection.Connected then
-                holdConnection:Disconnect()
+            if not freshTargetRoot or not freshTargetHumanoid or freshTargetHumanoid.Health <= 0 or not targetChar:IsDescendantOf(workspace) then
+                connection:Disconnect()
+                return
             end
             
-            -- Wacht 0,3 seconden voordat de volgende herhaling start (behalve bij de laatste iteratie)
-            if i < 15 then
-                task.wait(0.3)
+            -- Dynamic movement prediction based on target velocity
+            local targetVel = freshTargetRoot.AssemblyLinearVelocity
+            local predictionMult = 0.12
+            
+            if targetVel.Magnitude < 1 then
+                predictionMult = 0 -- Target standing still
             end
+            
+            local predictedPosition = freshTargetRoot.Position + (targetVel * predictionMult)
+            
+            -- Alternating micro-jitter to force constant physics overlap
+            toggleJitter = not toggleJitter
+            local offset = toggleJitter and Vector3.new(0, 0.1, 0) or Vector3.new(0, -0.1, 0)
+            
+            localRoot.CFrame = CFrame.new(predictedPosition + offset) * CFrame.Angles(math.rad(math.random(-180, 180)), math.rad(math.random(-180, 180)), math.rad(math.random(-180, 180)))
+            localRoot.Velocity = Vector3.new(99999, 99999, 99999)
+            localRoot.RotVelocity = Vector3.new(99999, 999999, 99999)
+        end)
+        
+        -- Hold loop active until disconnect
+        repeat
+            task.wait(0.05)
+        until not connection.Connected
+        
+        -- Clean up forces
+        if bAV then bAV:Destroy() end
+        if bV then bV:Destroy() end
+        
+        -- Return to starting CFrame safely
+        if localRoot then
+            localRoot.Velocity = Vector3.zero
+            localRoot.RotVelocity = Vector3.zero
+            localRoot.CFrame = startCFrame
         end
         
-        -- Na alle herhalingen alles netjes herstellen en terugkeren naar de startpositie
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-            local currentHumanoid = LocalPlayer.Character.Humanoid
-            currentHumanoid.PlatformStand = false
-            currentHumanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
-            currentHumanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+        task.wait(0.05)
+        
+        if localRoot then
+            localRoot.Velocity = Vector3.zero
+            localRoot.RotVelocity = Vector3.zero
         end
         
-        for _, part in ipairs(localChar:GetDescendants()) do
+        for _, part in ipairs(localChar:GetChildren()) do
             if part:IsA("BasePart") then
                 part.CanCollide = true
             end
         end
         
-        if localRoot then
-            localRoot.Velocity = Vector3.new(0, 0, 0)
-            localRoot.RotVelocity = Vector3.new(0, 0, 0)
-            localRoot.CFrame = startCFrame
+        if humanoid then
+            humanoid.PlatformStand = false
+            humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
         end
         
-        task.wait(0.05)
-        if localRoot then
-            localRoot.Velocity = Vector3.new(0, 0, 0)
-            localRoot.RotVelocity = Vector3.new(0, 0, 0)
+        if previousAntiFlingState then
+            toggleAntiFling(true)
         end
         
         isFlinging = false
         
         Rayfield:Notify({
-           Title = "Sequence Complete",
-           Content = "Finished all 15 long-hold loops and returned safely!",
+           Title = "Target Eliminated",
+           Content = "Target was completely flinged!",
            Duration = 3,
         })
     end)
 end
+
+-- UI Elements
+Tab:CreateToggle({
+   Name = "Enable Anti-Fling",
+   CurrentValue = false,
+   Flag = "AntiFlingToggle",
+   Callback = function(Value)
+      toggleAntiFling(Value)
+   end,
+})
 
 Tab:CreateInput({
    Name = "Target Player Name",
@@ -144,7 +208,7 @@ Tab:CreateInput({
 })
 
 Tab:CreateButton({
-   Name = "Run Long-Hold TouchFling",
+   Name = "Run TouchFling (Dynamic Tracking)",
    Callback = function()
       local target = nil
       for _, player in ipairs(Players:GetPlayers()) do
@@ -155,7 +219,7 @@ Tab:CreateButton({
       end
       
       if target and target.Character then
-         executeLongHoldTouchFling(target.Character)
+         executeFlingUntilDead(target.Character)
       else
          Rayfield:Notify({
             Title = "Error",
@@ -205,10 +269,10 @@ Tab:CreateButton({
       if murderer and murderer.Character then
          Rayfield:Notify({
             Title = "Murderer Found!",
-            Content = "Executing long-hold sequence on " .. murderer.Name,
+            Content = "Executing dynamic fling on " .. murderer.Name,
             Duration = 3,
          })
-         executeLongHoldTouchFling(murderer.Character)
+         executeFlingUntilDead(murderer.Character)
       else
          Rayfield:Notify({
             Title = "Error",
