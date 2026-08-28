@@ -1,0 +1,550 @@
+local repo = "https://sirius.menu/rayfield"
+local Rayfield = loadstring(game:HttpGet(repo))()
+
+local Window = Rayfield:CreateWindow({
+    Name = "Bomb Hub",
+    LoadingTitle = "Bomb Hub Loading...",
+    LoadingSubtitle = "by Script",
+    ConfigurationSaving = {
+        Enabled = false,
+        FolderName = nil,
+        FileName = "BombHub"
+    },
+    KeySystem = false,
+})
+
+local Tab = Window:CreateTab("Toggles", 4483362458)
+
+local p = game.Players.LocalPlayer
+local playerGui = p:WaitForChild("PlayerGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local savedGoldPosition = UDim2.new(0.5, -65, 0.7, -22)
+local goldJumpActive = false
+local goldLockedPermanently = false
+
+local savedFakePosition = UDim2.new(0.5, -65, 0.6, -22)
+local fakeJumpActive = false
+local fakeLockedPermanently = false
+
+local savedGunPosition = UDim2.new(0.5, -65, 0.5, -22)
+local gunActive = false
+local gunLockedPermanently = false
+
+local espActive = false
+
+local function createGoldBombButton()
+    if playerGui:FindFirstChild("GoldBombJumpGui") then
+        playerGui.GoldBombJumpGui:Destroy()
+    end
+
+    local sg = Instance.new("ScreenGui", playerGui)
+    sg.Name = "GoldBombJumpGui"
+    sg.ResetOnSpawn = false
+
+    local btn = Instance.new("TextButton", sg)
+    btn.Size = UDim2.new(0, 130, 0, 45)
+    btn.Position = savedGoldPosition
+    btn.BackgroundColor3 = Color3.fromRGB(255, 170, 0)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = "Bomb Jump"
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 16
+    btn.Active = true
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
+
+    local lockLabel = Instance.new("TextLabel", btn)
+    lockLabel.Size = UDim2.new(0, 20, 0, 20)
+    lockLabel.Position = UDim2.new(1, -22, 0, 2)
+    lockLabel.BackgroundTransparency = 1
+    lockLabel.Text = "🔒"
+    lockLabel.TextSize = 14
+    lockLabel.Visible = goldLockedPermanently
+
+    local locked = goldLockedPermanently
+    local dragging, dragStart, startPos = false, nil, nil
+    local lastExecution = 0
+    local lastClickTime = 0
+
+    btn:GetPropertyChangedSignal("Position"):Connect(function()
+        if sg.Parent and not locked then
+            savedGoldPosition = btn.Position
+        end
+    end)
+
+    btn.InputBegan:Connect(function(i)
+        if not locked and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
+            dragging = true
+            dragStart = i.Position
+            startPos = btn.Position
+        end
+    end)
+
+    game:GetService("UserInputService").InputChanged:Connect(function(i)
+        if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local delta = i.Position - dragStart
+            btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            savedGoldPosition = btn.Position
+        end
+    end)
+
+    btn.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then 
+            dragging = false 
+        end
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        local currentTime = tick()
+        if currentTime - lastClickTime <= 1 then
+            if not locked then
+                locked = true
+                goldLockedPermanently = true
+                lockLabel.Visible = true
+                dragging = false
+            end
+            lastClickTime = 0
+        else
+            lastClickTime = currentTime
+        end
+
+        local now = tick()
+        if now - lastExecution < 3.5 then
+            btn.Text = "wait.."
+            task.delay(1, function()
+                if btn.Text == "wait.." then
+                    btn.Text = "Bomb Jump"
+                end
+            end)
+        else
+            lastExecution = now
+            local char = p.Character
+            if char then
+                local backpack = p:FindFirstChildOfClass("Backpack")
+                local bomb = char:FindFirstChild("GoldBomb") or (backpack and backpack:FindFirstChild("GoldBomb"))
+                
+                if bomb and bomb.Parent == backpack then
+                    bomb.Parent = char
+                end
+                
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                
+                if hum and hrp then
+                    local spawnCFrame = hrp.CFrame - Vector3.new(0, 3.2, 0)
+                    local args = {
+                        spawnCFrame,
+                        50
+                    }
+                    pcall(function()
+                        if char:FindFirstChild("GoldBomb") then
+                            char.GoldBomb:WaitForChild("Remote"):FireServer(unpack(args))
+                        end
+                    end)
+                    
+                    task.wait(0.2)
+                    hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 55, hrp.AssemblyLinearVelocity.Z)
+                end
+            end
+        end
+    end)
+
+    task.spawn(function()
+        while goldJumpActive and sg.Parent do
+            pcall(function()
+                local args = {
+                    "GoldBomb"
+                }
+                ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Extras"):WaitForChild("ReplicateToy"):InvokeServer(unpack(args))
+            end)
+            task.wait(3)
+        end
+    end)
+end
+
+local function createFakeBombButton()
+    if playerGui:FindFirstChild("FakeBombJumpGui") then
+        playerGui.FakeBombJumpGui:Destroy()
+    end
+
+    local sg = Instance.new("ScreenGui", playerGui)
+    sg.Name = "FakeBombJumpGui"
+    sg.ResetOnSpawn = false
+
+    local btn = Instance.new("TextButton", sg)
+    btn.Size = UDim2.new(0, 130, 0, 45)
+    btn.Position = savedFakePosition
+    btn.BackgroundColor3 = Color3.fromRGB(120, 120, 120)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = "Fake Bomb"
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 16
+    btn.Active = true
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
+
+    local lockLabel = Instance.new("TextLabel", btn)
+    lockLabel.Size = UDim2.new(0, 20, 0, 20)
+    lockLabel.Position = UDim2.new(1, -22, 0, 2)
+    lockLabel.BackgroundTransparency = 1
+    lockLabel.Text = "🔒"
+    lockLabel.TextSize = 14
+    lockLabel.Visible = fakeLockedPermanently
+
+    local locked = fakeLockedPermanently
+    local dragging, dragStart, startPos = false, nil, nil
+    local lastExecution = 0
+    local lastClickTime = 0
+
+    btn:GetPropertyChangedSignal("Position"):Connect(function()
+        if sg.Parent and not locked then
+            savedFakePosition = btn.Position
+        end
+    end)
+
+    btn.InputBegan:Connect(function(i)
+        if not locked and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
+            dragging = true
+            dragStart = i.Position
+            startPos = btn.Position
+        end
+    end)
+
+    game:GetService("UserInputService").InputChanged:Connect(function(i)
+        if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local delta = i.Position - dragStart
+            btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            savedFakePosition = btn.Position
+        end
+    end)
+
+    btn.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then 
+            dragging = false 
+        end
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        local currentTime = tick()
+        if currentTime - lastClickTime <= 1 then
+            if not locked then
+                locked = true
+                fakeLockedPermanently = true
+                lockLabel.Visible = true
+                dragging = false
+            end
+            lastClickTime = 0
+        else
+            lastClickTime = currentTime
+        end
+
+        local now = tick()
+        if now - lastExecution < 19.5 then
+            btn.Text = "wait.."
+            task.delay(1, function()
+                if btn.Text == "wait.." then
+                    btn.Text = "Fake Bomb"
+                end
+            end)
+        else
+            lastExecution = now
+            local char = p.Character
+            if char then
+                local backpack = p:FindFirstChildOfClass("Backpack")
+                local bomb = char:FindFirstChild("FakeBomb") or (backpack and backpack:FindFirstChild("FakeBomb"))
+                
+                if bomb and bomb.Parent == backpack then
+                    bomb.Parent = char
+                end
+                
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                
+                if hum and hrp then
+                    local spawnCFrame = hrp.CFrame - Vector3.new(0, 3.2, 0)
+                    local args = {
+                        spawnCFrame,
+                        50
+                    }
+                    pcall(function()
+                        if char:FindFirstChild("FakeBomb") then
+                            char.FakeBomb:WaitForChild("Remote"):FireServer(unpack(args))
+                        end
+                    end)
+                    
+                    task.wait(0.2)
+                    hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 55, hrp.AssemblyLinearVelocity.Z)
+                end
+            end
+        end
+    end)
+
+    task.spawn(function()
+        while fakeJumpActive and sg.Parent do
+            pcall(function()
+                local args = {
+                    "FakeBomb"
+                }
+                ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Extras"):WaitForChild("ReplicateToy"):InvokeServer(unpack(args))
+            end)
+            task.wait(3)
+        end
+    end)
+end
+
+local function createGunButton()
+    if playerGui:FindFirstChild("GunButtonGui") then
+        playerGui.GunButtonGui:Destroy()
+    end
+
+    local sg = Instance.new("ScreenGui", playerGui)
+    sg.Name = "GunButtonGui"
+    sg.ResetOnSpawn = false
+
+    local btn = Instance.new("TextButton", sg)
+    btn.Size = UDim2.new(0, 100, 0, 100)
+    btn.Position = savedGunPosition
+    btn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = "SHOOT"
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 20
+    btn.Active = true
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 12)
+
+    local lockLabel = Instance.new("TextLabel", btn)
+    lockLabel.Size = UDim2.new(0, 20, 0, 20)
+    lockLabel.Position = UDim2.new(1, -22, 0, 2)
+    lockLabel.BackgroundTransparency = 1
+    lockLabel.Text = "🔒"
+    lockLabel.TextSize = 14
+    lockLabel.Visible = gunLockedPermanently
+
+    local locked = gunLockedPermanently
+    local dragging, dragStart, startPos = false, nil, nil
+    local lastClickTime = 0
+
+    btn:GetPropertyChangedSignal("Position"):Connect(function()
+        if sg.Parent and not locked then
+            savedGunPosition = btn.Position
+        end
+    end)
+
+    btn.InputBegan:Connect(function(i)
+        if not locked and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
+            dragging = true
+            dragStart = i.Position
+            startPos = btn.Position
+        end
+    end)
+
+    game:GetService("UserInputService").InputChanged:Connect(function(i)
+        if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local delta = i.Position - dragStart
+            btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            savedGunPosition = btn.Position
+        end
+    end)
+
+    btn.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then 
+            dragging = false 
+        end
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        local currentTime = tick()
+        if currentTime - lastClickTime <= 1 then
+            if not locked then
+                locked = true
+                gunLockedPermanently = true
+                lockLabel.Visible = true
+                dragging = false
+            end
+            lastClickTime = 0
+        else
+            lastClickTime = currentTime
+        end
+
+        local char = p.Character
+        local backpack = p:FindFirstChildOfClass("Backpack")
+        
+        local gun = (char and char:FindFirstChild("Gun")) or (backpack and backpack:FindFirstChild("Gun"))
+        if not gun then
+            btn.Text = "Ur not sheriff"
+            task.delay(1.5, function()
+                if btn.Text == "Ur not sheriff" then
+                    btn.Text = "SHOOT"
+                end
+            end)
+            return
+        end
+
+        if backpack and backpack:FindFirstChild("Gun") then
+            if char then
+                for _, child in ipairs(char:GetChildren()) do
+                    if child:IsA("Tool") then
+                        child.Parent = backpack
+                    end
+                end
+            end
+            backpack.Gun.Parent = char
+        elseif char and not char:FindFirstChild("Gun") then
+            for _, child in ipairs(char:GetChildren()) do
+                if child:IsA("Tool") then
+                    child.Parent = backpack
+                end
+            end
+            gun.Parent = char
+        else
+            if char then
+                for _, child in ipairs(char:GetChildren()) do
+                    if child:IsA("Tool") and child.Name ~= "Gun" then
+                        child.Parent = backpack
+                    end
+                end
+            end
+        end
+
+        local murdererHrp = nil
+        for _, plr in ipairs(game:GetService("Players"):GetPlayers()) do
+            if plr ~= p and plr.Character then
+                local pChar = plr.Character
+                local pBackpack = plr:FindFirstChildOfClass("Backpack")
+                local hasKnife = pChar:FindFirstChild("Knife") or (pBackpack and pBackpack:FindFirstChild("Knife"))
+                if hasKnife then
+                    murdererHrp = pChar:FindFirstChild("HumanoidRootPart")
+                    break
+                end
+            end
+        end
+
+        if murdererHrp and char and char:FindFirstChild("Gun") then
+            local gunTool = char:FindFirstChild("Gun")
+            local shootRemote = gunTool:FindFirstChild("Shoot")
+            if shootRemote then
+                local startPosCFrame = gunTool:FindFirstChild("Handle") and gunTool.Handle.CFrame or char:FindFirstChild("HumanoidRootPart").CFrame
+                local args = {
+                    CFrame.new(startPosCFrame.Position, murdererHrp.Position),
+                    murdererHrp.CFrame
+                }
+                pcall(function()
+                    shootRemote:FireServer(unpack(args))
+                end)
+            end
+        end
+    end)
+end
+
+Tab:CreateToggle({
+    Name = "Gold Bomb Jump",
+    CurrentValue = false,
+    Flag = "GoldBombToggle",
+    Callback = function(Value)
+        goldJumpActive = Value
+        if Value then
+            createGoldBombButton()
+        else
+            if playerGui:FindFirstChild("GoldBombJumpGui") then
+                playerGui.GoldBombJumpGui:Destroy()
+            end
+        end
+    end,
+})
+
+Tab:CreateToggle({
+    Name = "Fake Bomb Jump",
+    CurrentValue = false,
+    Flag = "FakeBombToggle",
+    Callback = function(Value)
+        fakeJumpActive = Value
+        if Value then
+            createFakeBombButton()
+        else
+            if playerGui:FindFirstChild("FakeBombJumpGui") then
+                playerGui.FakeBombJumpGui:Destroy()
+            end
+        end
+    end,
+})
+
+Tab:CreateToggle({
+    Name = "Auto Gun Button",
+    CurrentValue = false,
+    Flag = "GunToggle",
+    Callback = function(Value)
+        gunActive = Value
+        if Value then
+            createGunButton()
+        else
+            if playerGui:FindFirstChild("GunButtonGui") then
+                playerGui.GunButtonGui:Destroy()
+            end
+        end
+    end,
+})
+
+Tab:CreateToggle({
+    Name = "ESP (Sheriff: Blue, Murderer: Red, Innocent: Green)",
+    CurrentValue = false,
+    Flag = "Esptoggle",
+    Callback = function(Value)
+        espActive = Value
+    end,
+})
+
+task.spawn(function()
+    while true do
+        task.wait(0.2)
+        if espActive then
+            for _, plr in ipairs(game:GetService("Players"):GetPlayers()) do
+                if plr ~= p and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                    local char = plr.Character
+                    local bp = plr:FindFirstChildOfClass("Backpack")
+                    
+                    local hasGun = char:FindFirstChild("Gun") or (bp and bp:FindFirstChild("Gun"))
+                    local hasKnife = char:FindFirstChild("Knife") or (bp and bp:FindFirstChild("Knife"))
+                    
+                    local color = Color3.fromRGB(0, 255, 0)
+                    if hasGun then
+                        color = Color3.fromRGB(0, 100, 255)
+                    elseif hasKnife then
+                        color = Color3.fromRGB(255, 0, 0)
+                    end
+                    
+                    local hl = char:FindFirstChild("BombHubESP")
+                    if not hl then
+                        hl = Instance.new("Highlight")
+                        hl.Name = "BombHubESP"
+                        hl.Adornee = char
+                        hl.Parent = char
+                        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    end
+                    hl.FillColor = color
+                    hl.OutlineColor = color
+                    hl.FillTransparency = 0.5
+                elseif plr.Character and plr.Character:FindFirstChild("BombHubESP") then
+                    plr.Character.BombHubESP:Destroy()
+                end
+            end
+        else
+            for _, plr in ipairs(game:GetService("Players"):GetPlayers()) do
+                if plr.Character and plr.Character:FindFirstChild("BombHubESP") then
+                    plr.Character.BombHubESP:Destroy()
+                end
+            end
+        end
+    end
+end)
+
+p.CharacterAdded:Connect(function(char)
+    task.wait(1)
+    if goldJumpActive then
+        createGoldBombButton()
+    end
+    if fakeJumpActive then
+        createFakeBombButton()
+    end
+    if gunActive then
+        createGunButton()
+    end
+end)
