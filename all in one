@@ -1,15 +1,21 @@
 --[[
-    Project: Ultimate MM2 Hub (Fixed ESP + Text Labels) | Luaroblox_helper
+    Project: Ultimate MM2 Hub (Fixed Rayfield Loader & Smoother Fling) | Luaroblox_helper
     Language: English
 ]]
 
 local success, Rayfield = pcall(function()
-    return loadstring(game:HttpGet("https://raw.githubusercontent.com/sirius-menu/rayfield/main/source.lua"))()
+    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 end)
 
 if not success or not Rayfield then
-    warn("Rayfield kon niet worden geladen via de primaire URL. Proberen alternatieve bron...")
-    Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+    warn("Rayfield kon niet worden geladen. Proberen alternatieve CDN...")
+    success, Rayfield = pcall(function()
+        return loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
+    end)
+end
+
+if not success or not Rayfield then
+    error("Rayfield kon definitief niet worden geladen! Controleer je exploit of internetverbinding.")
 end
 
 local Window = Rayfield:CreateWindow({
@@ -414,8 +420,11 @@ local function createGunButton()
         end
 
         local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
         local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
         
+        if not hrp then return end
+
         local gun = (char and char:FindFirstChild("Gun")) or (backpack and backpack:FindFirstChild("Gun"))
         local knife = (char and char:FindFirstChild("Knife")) or (backpack and backpack:FindFirstChild("Knife"))
 
@@ -437,10 +446,17 @@ local function createGunButton()
             end
 
             local targetHrp = nil
+            local shortestDist = math.huge
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-                    targetHrp = plr.Character.HumanoidRootPart
-                    break
+                    local pHum = plr.Character:FindFirstChildOfClass("Humanoid")
+                    if pHum and pHum.Health > 0 then
+                        local dist = (hrp.Position - plr.Character.HumanoidRootPart.Position).Magnitude
+                        if dist < shortestDist then
+                            shortestDist = dist
+                            targetHrp = plr.Character.HumanoidRootPart
+                        end
+                    end
                 end
             end
 
@@ -449,7 +465,7 @@ local function createGunButton()
 
             if targetHrp and throwRemote then
                 local knifeHandle = knifeTool:FindFirstChild("Handle")
-                local startPosCFrame = knifeHandle and knifeHandle.CFrame or (char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart.CFrame)
+                local startPosCFrame = knifeHandle and knifeHandle.CFrame or hrp.CFrame
                 
                 if startPosCFrame then
                     local predictedPosition = targetHrp.Position + (targetHrp.AssemblyLinearVelocity * 0.1)
@@ -494,14 +510,23 @@ local function createGunButton()
         end
 
         local murdererHrp = nil
+        local shortestMurdererDist = math.huge
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= LocalPlayer and plr.Character then
                 local pChar = plr.Character
                 local pBackpack = plr:FindFirstChildOfClass("Backpack")
-                local hasKnife = pChar:FindFirstChild("Knife") or (pBackpack and pBackpack:FindFirstChild("Knife"))
-                if hasKnife then
-                    murdererHrp = pChar:FindFirstChild("HumanoidRootPart")
-                    break
+                local pHum = pChar:FindFirstChildOfClass("Humanoid")
+                local pRoot = pChar:FindFirstChild("HumanoidRootPart")
+                
+                if pHum and pHum.Health > 0 and pRoot then
+                    local hasKnife = pChar:FindFirstChild("Knife") or (pBackpack and pBackpack:FindFirstChild("Knife"))
+                    if hasKnife then
+                        local dist = (hrp.Position - pRoot.Position).Magnitude
+                        if dist < shortestMurdererDist then
+                            shortestMurdererDist = dist
+                            murdererHrp = pRoot
+                        end
+                    end
                 end
             end
         end
@@ -510,7 +535,7 @@ local function createGunButton()
             local gunTool = char:FindFirstChild("Gun")
             local shootRemote = gunTool:FindFirstChild("Shoot")
             if shootRemote then
-                local startPosCFrame = gunTool:FindFirstChild("Handle") and gunTool.Handle.CFrame or char:FindFirstChild("HumanoidRootPart").CFrame
+                local startPosCFrame = gunTool:FindFirstChild("Handle") and gunTool.Handle.CFrame or hrp.CFrame
                 local predictedMurdererPos = murdererHrp.Position + (murdererHrp.AssemblyLinearVelocity * 0.1)
                 local args = {
                     CFrame.new(startPosCFrame.Position, predictedMurdererPos),
@@ -829,7 +854,7 @@ task.spawn(function()
     end
 end)
 
--- --- ANTI-FLING & FLING LOGICA --- --
+-- --- ANTI-FLING & VERBETERDE FLING LOGICA (Voren naar Achter) --- --
 
 local function toggleAntiFling(state)
     antiFlingEnabled = state
@@ -884,7 +909,7 @@ local function executeFlingUntilDead(targetChar)
     local bAV = Instance.new("BodyAngularVelocity")
     bAV.Name = "FlingForce"
     bAV.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-    bAV.AngularVelocity = Vector3.new(0, 999999, 0)
+    bAV.AngularVelocity = Vector3.new(99999, 99999, 99999)
     bAV.Parent = localRoot
 
     local bV = Instance.new("BodyVelocity")
@@ -895,7 +920,6 @@ local function executeFlingUntilDead(targetChar)
     
     task.spawn(function()
         local connection
-        local toggleJitter = false
         
         connection = RunService.Heartbeat:Connect(function()
             if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("Humanoid") or LocalPlayer.Character.Humanoid.Health <= 0 then
@@ -911,16 +935,14 @@ local function executeFlingUntilDead(targetChar)
                 return
             end
             
-            local targetVel = freshTargetRoot.AssemblyLinearVelocity
-            local predictionMult = targetVel.Magnitude < 1 and 0 or 0.12
-            local predictedPosition = freshTargetRoot.Position + (targetVel * predictionMult)
+            -- Normale Fling positie: teleport van vóór de target naar achteren om ze te laten vliegen
+            local targetCFrame = freshTargetRoot.CFrame
+            local offset = (tick() % 0.4 < 0.2) and (targetCFrame.LookVector * 2.5) or (-targetCFrame.LookVector * 2.5)
+            local predictedPosition = freshTargetRoot.Position + offset + Vector3.new(0, 0.2, 0)
             
-            toggleJitter = not toggleJitter
-            local offset = toggleJitter and Vector3.new(0, 0.1, 0) or Vector3.new(0, -0.1, 0)
-            
-            localRoot.CFrame = CFrame.new(predictedPosition + offset) * CFrame.Angles(math.rad(math.random(-180, 180)), math.rad(math.random(-180, 180)), math.rad(math.random(-180, 180)))
-            localRoot.Velocity = Vector3.new(99999, 99999, 99999)
-            localRoot.RotVelocity = Vector3.new(99999, 999999, 99999)
+            localRoot.CFrame = CFrame.new(predictedPosition) * CFrame.Angles(math.rad(math.random(-180, 180)), math.rad(math.random(-180, 180)), math.rad(math.random(-180, 180)))
+            localRoot.Velocity = Vector3.new(35000, 35000, 35000)
+            localRoot.RotVelocity = Vector3.new(35000, 35000, 35000)
         end)
         
         repeat task.wait(0.05) until not connection.Connected
@@ -1211,7 +1233,7 @@ task.spawn(function()
                 end
             end
 
-            -- 2. Workspace GunDrop Zoeken & Tekst Label (Geen gehele scherm flash meer)
+            -- 2. Workspace GunDrop Zoeken & Tekst Label
             for _, obj in ipairs(workspace:GetDescendants()) do
                 if obj.Name == "GunDrop" then
                     local targetPart = obj:IsA("BasePart") and obj or (obj:IsA("Model") and obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart"))
@@ -1229,7 +1251,7 @@ task.spawn(function()
                             dropLabel.Name = "Label"
                             dropLabel.Size = UDim2.new(1, 0, 1, 0)
                             dropLabel.BackgroundTransparency = 1
-                            dropLabel.Text = "dropped gun"
+                            dropLabel.Text = "dropped gun. "
                             dropLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
                             dropLabel.TextScaled = true
                             dropLabel.Font = Enum.Font.SourceSansBold
