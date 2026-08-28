@@ -185,8 +185,14 @@ local function createGoldBombButton()
                         end
                     end)
                     
-                    task.wait(0.2)
                     hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 55, hrp.AssemblyLinearVelocity.Z)
+
+                    task.delay(0.2, function()
+                        local currentBomb = char:FindFirstChild("GoldBomb")
+                        if currentBomb and backpack then
+                            currentBomb.Parent = backpack
+                        end
+                    end)
                 end
             end
         end
@@ -309,8 +315,14 @@ local function createFakeBombButton()
                         end
                     end)
                     
-                    task.wait(0.2)
                     hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 55, hrp.AssemblyLinearVelocity.Z)
+
+                    task.delay(0.2, function()
+                        local currentBomb = char:FindFirstChild("FakeBomb")
+                        if currentBomb and backpack then
+                            currentBomb.Parent = backpack
+                        end
+                    end)
                 end
             end
         end
