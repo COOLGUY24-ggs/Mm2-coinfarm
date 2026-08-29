@@ -58,6 +58,7 @@ local gunActive = false
 local gunLockedPermanently = false
 
 local espActive = false
+local autoPickupGunActive = false
 
 -- Coin Farm Vars
 local autoFarmEnabled = false
@@ -87,12 +88,9 @@ local function getAdvancedPredictedPosition(shooterHrp, targetHrp, projectileSpe
     local targetPos = targetHrp.Position
     local targetVel = targetHrp.AssemblyLinearVelocity
 
-    -- Minimale predictie-factor om te zorgen dat de kogel nooit achter de speler terechtkomt
-    -- We pakken de directe huidige positie met een minimale correctie op basis van de snelheid
     local distance = (shooterHrp.Position - targetPos).Magnitude
     local timeOfFlight = distance / projectileSpeed
 
-    -- Direct vastzetten op het doelwit: minimale dampfactor tegen overshoot
     local predictedPos = targetPos + (targetVel * (timeOfFlight * 0.25))
 
     return predictedPos
@@ -402,7 +400,6 @@ local function createGunButton()
         local gun = (char and char:FindFirstChild("Gun")) or (backpack and backpack:FindFirstChild("Gun"))
         local knife = (char and char:FindFirstChild("Knife")) or (backpack and backpack:FindFirstChild("Knife"))
 
-        -- KNIFE THROW AIMBOT (Zero-Lag Direct Lock)
         if not gun and knife then
             if backpack and backpack:FindFirstChild("Knife") then
                 for _, child in ipairs(char:GetChildren()) do if child:IsA("Tool") then child.Parent = backpack end end
@@ -447,7 +444,6 @@ local function createGunButton()
             return
         end
 
-        -- GUN SHOOT AIMBOT (Zero-Lag Direct Lock)
         if backpack and backpack:FindFirstChild("Gun") then
             for _, child in ipairs(char:GetChildren()) do if child:IsA("Tool") then child.Parent = backpack end end
             backpack.Gun.Parent = char
@@ -926,6 +922,15 @@ CombatTab:CreateToggle({
     end,
 })
 
+CombatTab:CreateToggle({
+    Name = "Auto Pickup Gun (Safe FireTouchInterest)",
+    CurrentValue = false,
+    Flag = "AutoPickupGunToggle",
+    Callback = function(Value)
+        autoPickupGunActive = Value
+    end,
+})
+
 FarmTab:CreateToggle({
     Name = "Auto Coin Farm (Stops at 40)",
     CurrentValue = false,
@@ -1055,6 +1060,37 @@ FlingTab:CreateButton({
     end,
 })
 
+FlingTab:CreateButton({
+    Name = "Fling Sheriff Safely",
+    Callback = function()
+        local sheriff = nil
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local char = player.Character
+                local backpack = player:FindFirstChild("Backpack")
+                local hasGun = false
+                if char then
+                    for _, item in ipairs(char:GetChildren()) do
+                        if item:IsA("Tool") and string.lower(item.Name):find("gun") then hasGun = true break end
+                    end
+                end
+                if not hasGun and backpack then
+                    for _, item in ipairs(backpack:GetChildren()) do
+                        if item:IsA("Tool") and string.lower(item.Name):find("gun") then hasGun = true break end
+                    end
+                end
+                if hasGun then sheriff = player break end
+            end
+        end
+        if sheriff and sheriff.Character then
+            Rayfield:Notify({ Title = "Sheriff Found!", Content = "Executing fling on " .. sheriff.Name, Duration = 3 })
+            executeFlingUntilDead(sheriff.Character)
+        else
+            Rayfield:Notify({ Title = "Error", Content = "No Sheriff found with a gun!", Duration = 3 })
+        end
+    end,
+})
+
 MiscTab:CreateToggle({
     Name = "Anti-AFK Toggle",
     CurrentValue = false,
@@ -1077,7 +1113,7 @@ MiscTab:CreateSlider({
     end,
 })
 
--- --- ESP LOOP --- --
+-- --- ESP & AUTO PICKUP GUN LOOP --- --
 task.spawn(function()
     while true do
         task.wait(0.2)
@@ -1158,11 +1194,31 @@ task.spawn(function()
                             dropLabel.Name = "Label"
                             dropLabel.Size = UDim2.new(1, 0, 1, 0)
                             dropLabel.BackgroundTransparency = 1
-                            dropLabel.Text = "dropped gun. "
+                            dropLabel.Text = "dropped gun."
                             dropLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
                             dropLabel.TextScaled = true
                             dropLabel.Font = Enum.Font.SourceSansBold
                             dropLabel.TextStrokeTransparency = 0
+                        end
+
+                        -- AUTO PICKUP GUN LOGIC (Geen afstandslimiet van 1000 studs meer)
+                        if autoPickupGunActive then
+                            pcall(function()
+                                local character = LocalPlayer.Character
+                                local hrp = character and character:FindFirstChild("HumanoidRootPart")
+                                if hrp and targetPart then
+                                    local oldPos = hrp.CFrame
+                                    hrp.CFrame = targetPart.CFrame + Vector3.new(0, 1, 0)
+                                    task.wait(0.05)
+                                    if firetouchinterest then
+                                        firetouchinterest(hrp, targetPart, 0)
+                                        firetouchinterest(hrp, targetPart, 1)
+                                    end
+                                    task.wait(0.05)
+                                    hrp.CFrame = oldPos
+                                    Rayfield:Notify({ Title = "Gun Picked Up", Content = "Successfully collected dropped gun safely!", Duration = 3 })
+                                end
+                            end)
                         end
                     end
                 end
