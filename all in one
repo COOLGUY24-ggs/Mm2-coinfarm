@@ -1,5 +1,5 @@
 --[[
-    Project: Ultimate MM2 Hub (Fixed Close-Range Prediction) | Luaroblox_helper
+    Project: Ultimate MM2 Hub (Added Pool Jump) | Luaroblox_helper
     Language: English
 ]]
 
@@ -58,6 +58,11 @@ local savedGunPosition = UDim2.new(0.5, -65, 0.5, -22)
 local gunActive = false
 local gunLockedPermanently = false
 
+local savedPoolPosition = UDim2.new(0.5, -65, 0.4, -22)
+local poolJumpActive = false
+local poolLockedPermanently = false
+local poolJumpHeight = 100
+
 local espActive = false
 local autoPickupGunActive = false
 
@@ -109,7 +114,6 @@ local function getAdvancedPredictedPosition(shooterHrp, targetHrp, projectileSpe
     elseif distance >= 15 then
         predictionFactor = 0.45
     else
-        -- Als ze heel dichtbij zijn (< 15 studs), minimale of geen voorspelling om doorschieten te voorkomen!
         predictionFactor = 0.10
     end
 
@@ -339,6 +343,92 @@ local function createFakeBombButton()
                 ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Extras"):WaitForChild("ReplicateToy"):InvokeServer("FakeBomb")
             end)
             task.wait(3)
+        end
+    end)
+end
+
+local function createPoolJumpButton()
+    if playerGui:FindFirstChild("PoolJumpGui") then
+        playerGui.PoolJumpGui:Destroy()
+    end
+
+    local sg = Instance.new("ScreenGui", playerGui)
+    sg.Name = "PoolJumpGui"
+    sg.ResetOnSpawn = false
+
+    local btn = Instance.new("TextButton", sg)
+    btn.Size = UDim2.new(0, 130, 0, 45)
+    btn.Position = savedPoolPosition
+    btn.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = "Pool Jump"
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 16
+    btn.Active = true
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
+
+    local lockLabel = Instance.new("TextLabel", btn)
+    lockLabel.Size = UDim2.new(0, 20, 0, 20)
+    lockLabel.Position = UDim2.new(1, -22, 0, 2)
+    lockLabel.BackgroundTransparency = 1
+    lockLabel.Text = "🔒"
+    lockLabel.TextSize = 14
+    lockLabel.Visible = poolLockedPermanently
+
+    local locked = poolLockedPermanently
+    local dragging, dragStart, startPos = false, nil, nil
+    local lastClickTime = 0
+
+    btn:GetPropertyChangedSignal("Position"):Connect(function()
+        if sg.Parent and not locked then savedPoolPosition = btn.Position end
+    end)
+
+    btn.InputBegan:Connect(function(i)
+        if not locked and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
+            dragging = true
+            dragStart = i.Position
+            startPos = btn.Position
+        end
+    end)
+
+    game:GetService("UserInputService").InputChanged:Connect(function(i)
+        if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local delta = i.Position - dragStart
+            btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            savedPoolPosition = btn.Position
+        end
+    end)
+
+    btn.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = false end
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        local currentTime = tick()
+        if currentTime - lastClickTime <= 1 then
+            if not locked then
+                locked = true
+                poolLockedPermanently = true
+                lockLabel.Visible = true
+                dragging = false
+            end
+            lastClickTime = 0
+        else
+            lastClickTime = currentTime
+        end
+
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            task.spawn(function()
+                -- Draai een paar keer rond in het zwembad
+                for i = 1, 15 do
+                    hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(45), 0)
+                    task.wait(0.02)
+                end
+                -- Spring daarna heel hoog op basis van de slider
+                hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, poolJumpHeight, hrp.AssemblyLinearVelocity.Z)
+            end)
         end
     end)
 end
@@ -925,6 +1015,28 @@ CombatTab:CreateToggle({
 })
 
 CombatTab:CreateToggle({
+    Name = "Pool Jump",
+    CurrentValue = false,
+    Flag = "PoolJumpToggle",
+    Callback = function(Value)
+        poolJumpActive = Value
+        if Value then createPoolJumpButton() else if playerGui:FindFirstChild("PoolJumpGui") then playerGui.PoolJumpGui:Destroy() end end
+    end,
+})
+
+CombatTab:CreateSlider({
+    Name = "Pool Jump Height",
+    Range = {50, 400},
+    Increment = 10,
+    CurrentValue = 100,
+    Suffix = "studs",
+    Flag = "PoolJumpHeightSlider",
+    Callback = function(Value)
+        poolJumpHeight = Value
+    end,
+})
+
+CombatTab:CreateToggle({
     Name = "Auto Gun / Knife Button",
     CurrentValue = false,
     Flag = "GunToggle",
@@ -1457,6 +1569,7 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     task.wait(1)
     if goldJumpActive then createGoldBombButton() end
     if fakeJumpActive then createFakeBombButton() end
+    if poolJumpActive then createPoolJumpButton() end
     if gunActive then createGunButton() end
 end)
 
