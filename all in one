@@ -1,5 +1,5 @@
 --[[
-    Project: Ultimate MM2 Hub (Fullbright Removed) | Luaroblox_helper
+    Project: Ultimate MM2 Hub (Fixed Close-Range Prediction) | Luaroblox_helper
     Language: English
 ]]
 
@@ -33,6 +33,7 @@ local Window = Rayfield:CreateWindow({
 -- Tabs
 local CombatTab = Window:CreateTab("Toggles", 4483362458)
 local FarmTab = Window:CreateTab("Coin Farm", 4483362458)
+local KillTab = Window:CreateTab("Kill Tab", 4483362458)
 local FlingTab = Window:CreateTab("Fling", 4483362458)
 local MiscTab = Window:CreateTab("Misc", 4483345998)
 
@@ -89,16 +90,30 @@ local function getRoot(char)
     return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
 end
 
--- --- STRICT ZERO-LAG DIRECT LOCK (NO OVERSHOOT / NO HITTING BEHIND) --- --
+-- --- VERBETERDE SLIMME PREDICTION (GEFIXT VOOR DICHTBIJ & VERWEG) --- --
 local function getAdvancedPredictedPosition(shooterHrp, targetHrp, projectileSpeed)
     local targetPos = targetHrp.Position
     local targetVel = targetHrp.AssemblyLinearVelocity
+    local shooterVel = shooterHrp.AssemblyLinearVelocity
 
+    local relativeVel = targetVel - shooterVel
     local distance = (shooterHrp.Position - targetPos).Magnitude
     local timeOfFlight = distance / projectileSpeed
 
-    local predictedPos = targetPos + (targetVel * (timeOfFlight * 0.25))
+    local predictionFactor = 0.40
 
+    if distance >= 35 then
+        predictionFactor = 0.95
+    elseif distance >= 25 then
+        predictionFactor = 0.75
+    elseif distance >= 15 then
+        predictionFactor = 0.45
+    else
+        -- Als ze heel dichtbij zijn (< 15 studs), minimale of geen voorspelling om doorschieten te voorkomen!
+        predictionFactor = 0.10
+    end
+
+    local predictedPos = targetPos + (relativeVel * (timeOfFlight * predictionFactor))
     return predictedPos
 end
 
@@ -996,6 +1011,100 @@ FarmTab:CreateSlider({
     Flag = "FarmSpeed",
     Callback = function(Value)
         tweenSpeed = Value
+    end,
+})
+
+-- --- KILL TAB SETUP --- --
+
+KillTab:CreateButton({
+    Name = "Kill All for Murd",
+    Callback = function()
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            Rayfield:Notify({ Title = "Error", Content = "Character not found!", Duration = 3 })
+            return
+        end
+
+        local knife = getWeapon("Knife")
+        if not knife then
+            Rayfield:Notify({ Title = "Error", Content = "You need to be Murderer (have a knife) to use this!", Duration = 3 })
+            return
+        end
+
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then humanoid:EquipTool(knife) end
+
+        Rayfield:Notify({ Title = "Kill All", Content = "Bringing nearby players to you until they die...", Duration = 3 })
+
+        task.spawn(function()
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                    local pRoot = player.Character:FindFirstChild("HumanoidRootPart")
+                    local pHum = player.Character:FindFirstChildOfClass("Humanoid")
+                    
+                    if pRoot and pHum and pHum.Health > 0 then
+                        local dist = (hrp.Position - pRoot.Position).Magnitude
+                        if dist <= 1500 then
+                            while player.Character and pRoot and pHum and pHum.Health > 0 and humanoid and humanoid.Health > 0 do
+                                pRoot.CFrame = hrp.CFrame * CFrame.new(0, 0, -2)
+                                pRoot.AssemblyLinearVelocity = Vector3.zero
+                                task.wait(0.1)
+                            end
+                        end
+                    end
+                end
+            end
+            Rayfield:Notify({ Title = "Kill All Finished", Content = "All valid players brought and handled!", Duration = 3 })
+        end)
+    end,
+})
+
+KillTab:CreateButton({
+    Name = "Kill Murderer",
+    Callback = function()
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            Rayfield:Notify({ Title = "Error", Content = "Character not found!", Duration = 3 })
+            return
+        end
+
+        local murderer = nil
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local pChar = player.Character
+                local pBackpack = player:FindFirstChildOfClass("Backpack")
+                local pRoot = pChar and pChar:FindFirstChild("HumanoidRootPart")
+                local pHum = pChar and pChar:FindFirstChildOfClass("Humanoid")
+                
+                if pChar and pHum and pHum.Health > 0 and pRoot then
+                    local hasKnife = pChar:FindFirstChild("Knife") or (pBackpack and pBackpack:FindFirstChild("Knife"))
+                    if hasKnife then
+                        murderer = player
+                        break
+                    end
+                end
+            end
+        end
+
+        if murderer and murderer.Character and murderer.Character:FindFirstChild("HumanoidRootPart") then
+            local mRoot = murderer.Character.HumanoidRootPart
+            local mHum = murderer.Character:FindFirstChildOfClass("Humanoid")
+            
+            Rayfield:Notify({ Title = "Murderer Targeted", Content = "Bringing " .. murderer.Name .. " to you until they die...", Duration = 3 })
+            
+            task.spawn(function()
+                while murderer.Character and mRoot and mHum and mHum.Health > 0 do
+                    mRoot.CFrame = hrp.CFrame * CFrame.new(0, 0, -2)
+                    mRoot.AssemblyLinearVelocity = Vector3.zero
+                    task.wait(0.1)
+                end
+                Rayfield:Notify({ Title = "Success", Content = "Murderer is dead!", Duration = 3 })
+            end)
+        else
+            Rayfield:Notify({ Title = "Error", Content = "No Murderer found in the game!", Duration = 3 })
+        end
     end,
 })
 
