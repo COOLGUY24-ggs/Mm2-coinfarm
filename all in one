@@ -1,5 +1,5 @@
 --[[
-    Project: Ultimate MM2 Hub (Fixed Rayfield Loader & Smoother Fling) | Luaroblox_helper
+    Project: Ultimate MM2 Hub (Strict Zero-Lag Direct Lock) | Luaroblox_helper
     Language: English
 ]]
 
@@ -8,14 +8,14 @@ local success, Rayfield = pcall(function()
 end)
 
 if not success or not Rayfield then
-    warn("Rayfield kon niet worden geladen. Proberen alternatieve CDN...")
+    warn("Rayfield failed to load. Trying alternative cdn...")
     success, Rayfield = pcall(function()
         return loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
     end)
 end
 
 if not success or not Rayfield then
-    error("Rayfield kon definitief niet worden geladen! Controleer je exploit of internetverbinding.")
+    error("Rayfield could not be loaded!")
 end
 
 local Window = Rayfield:CreateWindow({
@@ -30,7 +30,7 @@ local Window = Rayfield:CreateWindow({
     KeySystem = false,
 })
 
--- Tabs aanmaken
+-- Tabs
 local CombatTab = Window:CreateTab("Toggles", 4483362458)
 local FarmTab = Window:CreateTab("Coin Farm", 4483362458)
 local FlingTab = Window:CreateTab("Fling", 4483362458)
@@ -44,7 +44,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- Variabelen voor Bomb Hub / Toggles
+-- UI Positions & States
 local savedGoldPosition = UDim2.new(0.5, -65, 0.7, -22)
 local goldJumpActive = false
 local goldLockedPermanently = false
@@ -59,7 +59,7 @@ local gunLockedPermanently = false
 
 local espActive = false
 
--- Variabelen voor Coin Farm
+-- Coin Farm Vars
 local autoFarmEnabled = false
 local antiAfkEnabled = false
 local autoResetEnabled = false
@@ -68,12 +68,11 @@ local tweenSpeed = 25
 local coinMode = "Closest"
 local antiAfkInterval = 15
 local maxAttemptsLimit = 10
-
 local failedAttempts = {}
 local MAX_DISTANCE = 1000
 local isExecutingCombat = false
 
--- Variabelen voor Fling
+-- Fling Vars
 local targetPlayerName = ""
 local isFlinging = false
 local antiFlingEnabled = false
@@ -83,7 +82,23 @@ local function getRoot(char)
     return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
 end
 
--- --- BOMB HUB FUNCTIES --- --
+-- --- STRICT ZERO-LAG DIRECT LOCK (NO OVERSHOOT / NO HITTING BEHIND) --- --
+local function getAdvancedPredictedPosition(shooterHrp, targetHrp, projectileSpeed)
+    local targetPos = targetHrp.Position
+    local targetVel = targetHrp.AssemblyLinearVelocity
+
+    -- Minimale predictie-factor om te zorgen dat de kogel nooit achter de speler terechtkomt
+    -- We pakken de directe huidige positie met een minimale correctie op basis van de snelheid
+    local distance = (shooterHrp.Position - targetPos).Magnitude
+    local timeOfFlight = distance / projectileSpeed
+
+    -- Direct vastzetten op het doelwit: minimale dampfactor tegen overshoot
+    local predictedPos = targetPos + (targetVel * (timeOfFlight * 0.25))
+
+    return predictedPos
+end
+
+-- --- BOMB HUB & COMBAT FUNCTIONS --- --
 
 local function createGoldBombButton()
     if playerGui:FindFirstChild("GoldBombJumpGui") then
@@ -119,9 +134,7 @@ local function createGoldBombButton()
     local lastClickTime = 0
 
     btn:GetPropertyChangedSignal("Position"):Connect(function()
-        if sg.Parent and not locked then
-            savedGoldPosition = btn.Position
-        end
+        if sg.Parent and not locked then savedGoldPosition = btn.Position end
     end)
 
     btn.InputBegan:Connect(function(i)
@@ -141,9 +154,7 @@ local function createGoldBombButton()
     end)
 
     btn.InputEnded:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then 
-            dragging = false 
-        end
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = false end
     end)
 
     btn.MouseButton1Click:Connect(function()
@@ -163,41 +174,28 @@ local function createGoldBombButton()
         local now = tick()
         if now - lastExecution < 3.5 then
             btn.Text = "wait.."
-            task.delay(1, function()
-                if btn.Text == "wait.." then
-                    btn.Text = "Bomb Jump"
-                end
-            end)
+            task.delay(1, function() if btn.Text == "wait.." then btn.Text = "Bomb Jump" end end)
         else
             lastExecution = now
             local char = LocalPlayer.Character
             if char then
                 local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
                 local bomb = char:FindFirstChild("GoldBomb") or (backpack and backpack:FindFirstChild("GoldBomb"))
-                
-                if bomb and bomb.Parent == backpack then
-                    bomb.Parent = char
-                end
+                if bomb and bomb.Parent == backpack then bomb.Parent = char end
                 
                 local hum = char:FindFirstChildOfClass("Humanoid")
                 local hrp = char:FindFirstChild("HumanoidRootPart")
-                
                 if hum and hrp then
                     local spawnCFrame = hrp.CFrame - Vector3.new(0, 3.2, 0)
-                    local args = { spawnCFrame, 50 }
                     pcall(function()
                         if char:FindFirstChild("GoldBomb") then
-                            char.GoldBomb:WaitForChild("Remote"):FireServer(unpack(args))
+                            char.GoldBomb:WaitForChild("Remote"):FireServer(spawnCFrame, 50)
                         end
                     end)
-                    
                     hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 55, hrp.AssemblyLinearVelocity.Z)
-
                     task.delay(0.2, function()
                         local currentBomb = char:FindFirstChild("GoldBomb")
-                        if currentBomb and backpack then
-                            currentBomb.Parent = backpack
-                        end
+                        if currentBomb and backpack then currentBomb.Parent = backpack end
                     end)
                 end
             end
@@ -207,8 +205,7 @@ local function createGoldBombButton()
     task.spawn(function()
         while goldJumpActive and sg.Parent do
             pcall(function()
-                local args = { "GoldBomb" }
-                ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Extras"):WaitForChild("ReplicateToy"):InvokeServer(unpack(args))
+                ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Extras"):WaitForChild("ReplicateToy"):InvokeServer("GoldBomb")
             end)
             task.wait(3)
         end
@@ -249,9 +246,7 @@ local function createFakeBombButton()
     local lastClickTime = 0
 
     btn:GetPropertyChangedSignal("Position"):Connect(function()
-        if sg.Parent and not locked then
-            savedFakePosition = btn.Position
-        end
+        if sg.Parent and not locked then savedFakePosition = btn.Position end
     end)
 
     btn.InputBegan:Connect(function(i)
@@ -271,9 +266,7 @@ local function createFakeBombButton()
     end)
 
     btn.InputEnded:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then 
-            dragging = false 
-        end
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = false end
     end)
 
     btn.MouseButton1Click:Connect(function()
@@ -293,41 +286,28 @@ local function createFakeBombButton()
         local now = tick()
         if now - lastExecution < 19.5 then
             btn.Text = "wait.."
-            task.delay(1, function()
-                if btn.Text == "wait.." then
-                    btn.Text = "Fake Bomb"
-                end
-            end)
+            task.delay(1, function() if btn.Text == "wait.." then btn.Text = "Fake Bomb" end end)
         else
             lastExecution = now
             local char = LocalPlayer.Character
             if char then
                 local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
                 local bomb = char:FindFirstChild("FakeBomb") or (backpack and backpack:FindFirstChild("FakeBomb"))
-                
-                if bomb and bomb.Parent == backpack then
-                    bomb.Parent = char
-                end
+                if bomb and bomb.Parent == backpack then bomb.Parent = char end
                 
                 local hum = char:FindFirstChildOfClass("Humanoid")
                 local hrp = char:FindFirstChild("HumanoidRootPart")
-                
                 if hum and hrp then
                     local spawnCFrame = hrp.CFrame - Vector3.new(0, 3.2, 0)
-                    local args = { spawnCFrame, 50 }
                     pcall(function()
                         if char:FindFirstChild("FakeBomb") then
-                            char.FakeBomb:WaitForChild("Remote"):FireServer(unpack(args))
+                            char.FakeBomb:WaitForChild("Remote"):FireServer(spawnCFrame, 50)
                         end
                     end)
-                    
                     hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 55, hrp.AssemblyLinearVelocity.Z)
-
                     task.delay(0.2, function()
                         local currentBomb = char:FindFirstChild("FakeBomb")
-                        if currentBomb and backpack then
-                            currentBomb.Parent = backpack
-                        end
+                        if currentBomb and backpack then currentBomb.Parent = backpack end
                     end)
                 end
             end
@@ -337,8 +317,7 @@ local function createFakeBombButton()
     task.spawn(function()
         while fakeJumpActive and sg.Parent do
             pcall(function()
-                local args = { "FakeBomb" }
-                ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Extras"):WaitForChild("ReplicateToy"):InvokeServer(unpack(args))
+                ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Extras"):WaitForChild("ReplicateToy"):InvokeServer("FakeBomb")
             end)
             task.wait(3)
         end
@@ -378,9 +357,7 @@ local function createGunButton()
     local lastClickTime = 0
 
     btn:GetPropertyChangedSignal("Position"):Connect(function()
-        if sg.Parent and not locked then
-            savedGunPosition = btn.Position
-        end
+        if sg.Parent and not locked then savedGunPosition = btn.Position end
     end)
 
     btn.InputBegan:Connect(function(i)
@@ -400,9 +377,7 @@ local function createGunButton()
     end)
 
     btn.InputEnded:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then 
-            dragging = false 
-        end
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = false end
     end)
 
     btn.MouseButton1Click:Connect(function()
@@ -422,27 +397,16 @@ local function createGunButton()
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
-        
         if not hrp then return end
 
         local gun = (char and char:FindFirstChild("Gun")) or (backpack and backpack:FindFirstChild("Gun"))
         local knife = (char and char:FindFirstChild("Knife")) or (backpack and backpack:FindFirstChild("Knife"))
 
+        -- KNIFE THROW AIMBOT (Zero-Lag Direct Lock)
         if not gun and knife then
             if backpack and backpack:FindFirstChild("Knife") then
-                for _, child in ipairs(char:GetChildren()) do
-                    if child:IsA("Tool") then
-                        child.Parent = backpack
-                    end
-                end
+                for _, child in ipairs(char:GetChildren()) do if child:IsA("Tool") then child.Parent = backpack end end
                 backpack.Knife.Parent = char
-            elseif char and not char:FindFirstChild("Knife") then
-                for _, child in ipairs(char:GetChildren()) do
-                    if child:IsA("Tool") then
-                        child.Parent = backpack
-                    end
-                end
-                knife.Parent = char
             end
 
             local targetHrp = nil
@@ -467,46 +431,26 @@ local function createGunButton()
                 local knifeHandle = knifeTool:FindFirstChild("Handle")
                 local startPosCFrame = knifeHandle and knifeHandle.CFrame or hrp.CFrame
                 
-                if startPosCFrame then
-                    local predictedPosition = targetHrp.Position + (targetHrp.AssemblyLinearVelocity * 0.1)
-                    local args = {
-                        CFrame.new(startPosCFrame.Position, predictedPosition),
-                        targetHrp.CFrame
-                    }
-                    pcall(function()
-                        throwRemote:FireServer(unpack(args))
-                    end)
-                end
+                local predictedPos = getAdvancedPredictedPosition(hrp, targetHrp, 130)
+                local args = {
+                    CFrame.new(startPosCFrame.Position, predictedPos),
+                    targetHrp.CFrame
+                }
+                pcall(function() throwRemote:FireServer(unpack(args)) end)
             end
             return
         end
 
         if not gun then
             btn.Text = "No gun/knife"
-            task.delay(1.5, function()
-                if btn.Text == "No gun/knife" then
-                    btn.Text = "SHOOT"
-                end
-            end)
+            task.delay(1.5, function() if btn.Text == "No gun/knife" then btn.Text = "SHOOT" end end)
             return
         end
 
+        -- GUN SHOOT AIMBOT (Zero-Lag Direct Lock)
         if backpack and backpack:FindFirstChild("Gun") then
-            if char then
-                for _, child in ipairs(char:GetChildren()) do
-                    if child:IsA("Tool") then
-                        child.Parent = backpack
-                    end
-                end
-            end
+            for _, child in ipairs(char:GetChildren()) do if child:IsA("Tool") then child.Parent = backpack end end
             backpack.Gun.Parent = char
-        elseif char and not char:FindFirstChild("Gun") then
-            for _, child in ipairs(char:GetChildren()) do
-                if child:IsA("Tool") then
-                    child.Parent = backpack
-                end
-            end
-            gun.Parent = char
         end
 
         local murdererHrp = nil
@@ -536,27 +480,25 @@ local function createGunButton()
             local shootRemote = gunTool:FindFirstChild("Shoot")
             if shootRemote then
                 local startPosCFrame = gunTool:FindFirstChild("Handle") and gunTool.Handle.CFrame or hrp.CFrame
-                local predictedMurdererPos = murdererHrp.Position + (murdererHrp.AssemblyLinearVelocity * 0.1)
+                
+                local predictedMurdererPos = getAdvancedPredictedPosition(hrp, murdererHrp, 350)
                 local args = {
                     CFrame.new(startPosCFrame.Position, predictedMurdererPos),
                     murdererHrp.CFrame
                 }
-                pcall(function()
-                    shootRemote:FireServer(unpack(args))
-                end)
+                pcall(function() shootRemote:FireServer(unpack(args)) end)
             end
         end
     end)
 end
 
--- --- ANTI-AFK & FARM LOGICA --- --
+-- --- ANTI-AFK & FARM LOGIC --- --
 
 LocalPlayer.Idled:Connect(function()
     if antiAfkEnabled then
         VirtualUser:Button2Down(Vector2.new(0, 0), Camera.CFrame)
         task.wait(1)
         VirtualUser:Button2Up(Vector2.new(0, 0), Camera.CFrame)
-        
         Rayfield:Notify({ Title = "Anti-AFK Triggered", Content = "Prevented kick due to inactivity!", Duration = 3 })
     end
 end)
@@ -568,9 +510,7 @@ task.spawn(function()
             pcall(function()
                 local character = LocalPlayer.Character
                 local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-                end
+                if humanoid then humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end
             end)
         end
     end
@@ -591,13 +531,10 @@ local function getCollectedCoins()
         for _, gui in ipairs(guiContainer:GetDescendants()) do
             if gui:IsA("TextLabel") and (string.lower(gui.Name):find("coin") or string.lower(gui.Text):find("/")) then
                 local currentCount = tonumber(string.match(gui.Text, "^(%d+)"))
-                if currentCount then
-                    return currentCount
-                end
+                if currentCount then return currentCount end
             end
         end
     end
-    
     return 0
 end
 
@@ -617,9 +554,7 @@ local function getSelectedCoin()
             if obj.Parent and (obj.Parent.Name == "CoinContainer" or obj.Parent.Name == "Coins" or obj.Name == "Coin") then
                 if not isBlacklistedPosition(obj.Position) then
                     local dist = (rootPart.Position - obj.Position).Magnitude
-                    if dist <= MAX_DISTANCE then
-                        table.insert(coinList, obj)
-                    end
+                    if dist <= MAX_DISTANCE then table.insert(coinList, obj) end
                 end
             end
         end
@@ -660,7 +595,6 @@ local function smoothTweenToPosition(targetCFrame, earlyDistance, targetCoinInst
     local character = LocalPlayer.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    
     if not rootPart or not humanoid then return false end
 
     local oldPlatformStand = humanoid.PlatformStand
@@ -680,22 +614,18 @@ local function smoothTweenToPosition(targetCFrame, earlyDistance, targetCoinInst
     while tick() - startTime < duration do
         if not autoFarmEnabled then break end
         if not LocalPlayer.Character or not rootPart.Parent then break end
-        
         if targetCoinInstance and (not targetCoinInstance.Parent or not targetCoinInstance:IsDescendantOf(workspace)) then
             humanoid.PlatformStand = oldPlatformStand
             return false
         end
 
         local currentDist = (rootPart.Position - targetCFrame.Position).Magnitude
-        if stopDistance > 0 and currentDist <= stopDistance then
-            break
-        end
+        if stopDistance > 0 and currentDist <= stopDistance then break end
 
         local alpha = math.clamp((tick() - startTime) / duration, 0, 1)
         rootPart.CFrame = startCFrame:Lerp(targetCFrame, alpha)
-        rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-        rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-        
+        rootPart.AssemblyLinearVelocity = Vector3.zero
+        rootPart.AssemblyAngularVelocity = Vector3.zero
         RunService.Heartbeat:Wait()
     end
     
@@ -704,26 +634,17 @@ local function smoothTweenToPosition(targetCFrame, earlyDistance, targetCoinInst
         return false
     end
 
-    if rootPart and rootPart.Parent and stopDistance <= 0 then
-        rootPart.CFrame = targetCFrame
-    end
-    
-    if humanoid and humanoid.Parent then
-        humanoid.PlatformStand = oldPlatformStand
-    end
+    if rootPart and rootPart.Parent and stopDistance <= 0 then rootPart.CFrame = targetCFrame end
+    if humanoid and humanoid.Parent then humanoid.PlatformStand = oldPlatformStand end
 
     return true
 end
 
 local function getWeapon(weaponName)
     local character = LocalPlayer.Character
-    if character and character:FindFirstChild(weaponName) then
-        return character:FindFirstChild(weaponName)
-    end
+    if character and character:FindFirstChild(weaponName) then return character:FindFirstChild(weaponName) end
     local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
-    if backpack and backpack:FindFirstChild(weaponName) then
-        return backpack:FindFirstChild(weaponName)
-    end
+    if backpack and backpack:FindFirstChild(weaponName) then return backpack:FindFirstChild(weaponName) end
     return nil
 end
 
@@ -854,7 +775,7 @@ task.spawn(function()
     end
 end)
 
--- --- ANTI-FLING & VERBETERDE FLING LOGICA (Voren naar Achter) --- --
+-- --- ANTI-FLING & FLING LOGIC --- --
 
 local function toggleAntiFling(state)
     antiFlingEnabled = state
@@ -865,9 +786,7 @@ local function toggleAntiFling(state)
                 for _, player in ipairs(Players:GetPlayers()) do
                     if player ~= LocalPlayer and player.Character then
                         for _, targetPart in ipairs(player.Character:GetDescendants()) do
-                            if targetPart:IsA("BasePart") then
-                                targetPart.CanCollide = false
-                            end
+                            if targetPart:IsA("BasePart") then targetPart.CanCollide = false end
                         end
                     end
                 end
@@ -890,7 +809,6 @@ local function executeFlingUntilDead(targetChar)
     local targetRoot = getRoot(targetChar)
     local humanoid = localChar:FindFirstChild("Humanoid")
     local targetHumanoid = targetChar:FindFirstChild("Humanoid")
-    
     if not localRoot or not targetRoot or not humanoid or not targetHumanoid then return end
     
     isFlinging = true
@@ -901,9 +819,7 @@ local function executeFlingUntilDead(targetChar)
     humanoid.PlatformStand = true
     
     for _, part in ipairs(localChar:GetChildren()) do
-        if part:IsA("BasePart") then
-            part.CanCollide = (part == localRoot)
-        end
+        if part:IsA("BasePart") then part.CanCollide = (part == localRoot) end
     end
     
     local bAV = Instance.new("BodyAngularVelocity")
@@ -915,12 +831,11 @@ local function executeFlingUntilDead(targetChar)
     local bV = Instance.new("BodyVelocity")
     bV.Name = "FlingMove"
     bV.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-    bV.Velocity = Vector3.new(0, 0, 0)
+    bV.Velocity = Vector3.zero
     bV.Parent = localRoot
     
     task.spawn(function()
         local connection
-        
         connection = RunService.Heartbeat:Connect(function()
             if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("Humanoid") or LocalPlayer.Character.Humanoid.Health <= 0 then
                 connection:Disconnect()
@@ -929,13 +844,11 @@ local function executeFlingUntilDead(targetChar)
             
             local freshTargetRoot = getRoot(targetChar)
             local freshTargetHumanoid = targetChar:FindFirstChild("Humanoid")
-            
             if not freshTargetRoot or not freshTargetHumanoid or freshTargetHumanoid.Health <= 0 or not targetChar:IsDescendantOf(workspace) then
                 connection:Disconnect()
                 return
             end
             
-            -- Normale Fling positie: teleport van vóór de target naar achteren om ze te laten vliegen
             local targetCFrame = freshTargetRoot.CFrame
             local offset = (tick() % 0.4 < 0.2) and (targetCFrame.LookVector * 2.5) or (-targetCFrame.LookVector * 2.5)
             local predictedPosition = freshTargetRoot.Position + offset + Vector3.new(0, 0.2, 0)
@@ -957,7 +870,6 @@ local function executeFlingUntilDead(targetChar)
         end
         
         task.wait(0.05)
-        
         for _, part in ipairs(localChar:GetChildren()) do
             if part:IsA("BasePart") then part.CanCollide = true end
         end
@@ -969,12 +881,11 @@ local function executeFlingUntilDead(targetChar)
         
         if previousAntiFlingState then toggleAntiFling(true) end
         isFlinging = false
-        
         Rayfield:Notify({ Title = "Target Eliminated", Content = "Target successfully flung!", Duration = 3 })
     end)
 end
 
--- --- UI COMPONENTEN PER TAB --- --
+-- --- UI SETUP --- --
 
 CombatTab:CreateToggle({
     Name = "Gold Bomb Jump",
@@ -1166,12 +1077,11 @@ MiscTab:CreateSlider({
     end,
 })
 
--- --- UITGEBREIDE ESP LOOP (Met BillboardGUI voor Ghost Murderer & GunDrop) --- --
+-- --- ESP LOOP --- --
 task.spawn(function()
     while true do
         task.wait(0.2)
         if espActive then
-            -- 1. Spelers ESP + Ghost TextFix
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LocalPlayer and plr.Character then
                     local char = plr.Character
@@ -1192,7 +1102,6 @@ task.spawn(function()
                             roleText = "Murderer"
                         end
                         
-                        -- Highlight toevoegen
                         local hl = char:FindFirstChild("BombHubESP")
                         if not hl then
                             hl = Instance.new("Highlight")
@@ -1205,7 +1114,6 @@ task.spawn(function()
                         hl.OutlineColor = color
                         hl.FillTransparency = 0.5
 
-                        -- BillboardGUI voor rol-tekst (handig als ze onzichtbaar/ghost zijn)
                         local textGui = char:FindFirstChild("RoleTextESP")
                         if not textGui then
                             textGui = Instance.new("BillboardGui")
@@ -1233,7 +1141,6 @@ task.spawn(function()
                 end
             end
 
-            -- 2. Workspace GunDrop Zoeken & Tekst Label
             for _, obj in ipairs(workspace:GetDescendants()) do
                 if obj.Name == "GunDrop" then
                     local targetPart = obj:IsA("BasePart") and obj or (obj:IsA("Model") and obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart"))
@@ -1261,7 +1168,6 @@ task.spawn(function()
                 end
             end
         else
-            -- Verwijder alle ESP highlights en textGUIs als toggle uit staat
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr.Character then
                     if plr.Character:FindFirstChild("BombHubESP") then plr.Character.BombHubESP:Destroy() end
@@ -1288,4 +1194,3 @@ LocalPlayer.CharacterAdded:Connect(function(char)
 end)
 
 Rayfield:LoadConfiguration()
-
