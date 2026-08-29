@@ -1,5 +1,5 @@
 --[[
-    Project: Ultimate MM2 Hub (Strict Zero-Lag Direct Lock) | Luaroblox_helper
+    Project: Ultimate MM2 Hub (Fullbright Removed) | Luaroblox_helper
     Language: English
 ]]
 
@@ -70,7 +70,7 @@ local coinMode = "Closest"
 local antiAfkInterval = 15
 local maxAttemptsLimit = 10
 local failedAttempts = {}
-local MAX_DISTANCE = 1000
+local MAX_DISTANCE = 1500
 local isExecutingCombat = false
 
 -- Fling Vars
@@ -78,6 +78,12 @@ local targetPlayerName = ""
 local isFlinging = false
 local antiFlingEnabled = false
 local antiFlingConnection = nil
+local autoTouchFlingEnabled = false
+local autoTouchFlingConnection = nil
+
+-- Misc Vars
+local noclipEnabled = false
+local noclipConnection = nil
 
 local function getRoot(char)
     return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
@@ -535,8 +541,8 @@ local function getCollectedCoins()
 end
 
 local function isBlacklistedPosition(pos)
-    local blacklistedCenter = Vector3.new(-21, 242, 9095)
-    return (Vector3.new(pos.X, pos.Y, pos.Z) - blacklistedCenter).Magnitude <= 15
+    local blacklistedCenter = Vector3.new(1, -66, -17)
+    return (Vector3.new(pos.X, pos.Y, pos.Z) - blacklistedCenter).Magnitude <= 25
 end
 
 local function getSelectedCoin()
@@ -1002,6 +1008,41 @@ FlingTab:CreateToggle({
     end,
 })
 
+FlingTab:CreateToggle({
+    Name = "Auto Fling on Touch (Proximity)",
+    CurrentValue = false,
+    Flag = "AutoTouchFlingToggle",
+    Callback = function(Value)
+        autoTouchFlingEnabled = Value
+        if autoTouchFlingEnabled then
+            if not autoTouchFlingConnection then
+                autoTouchFlingConnection = RunService.Stepped:Connect(function()
+                    if not autoTouchFlingEnabled or isFlinging then return end
+                    local char = LocalPlayer.Character
+                    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+                    local hrp = char.HumanoidRootPart
+                    
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                            local targetHrp = player.Character.HumanoidRootPart
+                            local dist = (hrp.Position - targetHrp.Position).Magnitude
+                            if dist < 4 then
+                                executeFlingUntilDead(player.Character)
+                                break
+                            end
+                        end
+                    end
+                end)
+            end
+        else
+            if autoTouchFlingConnection then
+                autoTouchFlingConnection:Disconnect()
+                autoTouchFlingConnection = nil
+            end
+        end
+    end,
+})
+
 FlingTab:CreateInput({
     Name = "Target Player Name",
     PlaceholderText = "Enter full or partial name",
@@ -1092,6 +1133,58 @@ FlingTab:CreateButton({
 })
 
 MiscTab:CreateToggle({
+    Name = "Noclip",
+    CurrentValue = false,
+    Flag = "NoclipToggle",
+    Callback = function(Value)
+        noclipEnabled = Value
+        if noclipEnabled then
+            noclipConnection = RunService.Stepped:Connect(function()
+                if LocalPlayer.Character then
+                    for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = false
+                        end
+                    end
+                end
+            end)
+        else
+            if noclipConnection then
+                noclipConnection:Disconnect()
+                noclipConnection = nil
+            end
+        end
+    end,
+})
+
+MiscTab:CreateSlider({
+    Name = "WalkSpeed",
+    Range = {16, 250},
+    Increment = 1,
+    CurrentValue = 16,
+    Flag = "WalkSpeedSlider",
+    Callback = function(Value)
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.WalkSpeed = Value
+        end
+    end,
+})
+
+MiscTab:CreateSlider({
+    Name = "JumpPower",
+    Range = {50, 500},
+    Increment = 5,
+    CurrentValue = 50,
+    Flag = "JumpPowerSlider",
+    Callback = function(Value)
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.UseJumpPower = true
+            LocalPlayer.Character.Humanoid.JumpPower = Value
+        end
+    end,
+})
+
+MiscTab:CreateToggle({
     Name = "Anti-AFK Toggle",
     CurrentValue = false,
     Flag = "AntiAfkToggle",
@@ -1110,6 +1203,13 @@ MiscTab:CreateSlider({
     Flag = "AntiAfkIntervalSlider",
     Callback = function(Value)
         antiAfkInterval = Value
+    end,
+})
+
+MiscTab:CreateButton({
+    Name = "Rejoin Server",
+    Callback = function()
+        game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
     end,
 })
 
@@ -1201,22 +1301,24 @@ task.spawn(function()
                             dropLabel.TextStrokeTransparency = 0
                         end
 
-                        -- AUTO PICKUP GUN LOGIC (Geen afstandslimiet van 1000 studs meer)
                         if autoPickupGunActive then
                             pcall(function()
                                 local character = LocalPlayer.Character
                                 local hrp = character and character:FindFirstChild("HumanoidRootPart")
                                 if hrp and targetPart then
-                                    local oldPos = hrp.CFrame
-                                    hrp.CFrame = targetPart.CFrame + Vector3.new(0, 1, 0)
-                                    task.wait(0.05)
-                                    if firetouchinterest then
-                                        firetouchinterest(hrp, targetPart, 0)
-                                        firetouchinterest(hrp, targetPart, 1)
+                                    local distToGun = (hrp.Position - targetPart.Position).Magnitude
+                                    if distToGun <= 1500 and (targetPart.Position - Vector3.new(1, -66, -17)).Magnitude > 25 then
+                                        local oldPos = hrp.CFrame
+                                        hrp.CFrame = targetPart.CFrame + Vector3.new(0, 1, 0)
+                                        task.wait(0.05)
+                                        if firetouchinterest then
+                                            firetouchinterest(hrp, targetPart, 0)
+                                            firetouchinterest(hrp, targetPart, 1)
+                                        end
+                                        task.wait(0.05)
+                                        hrp.CFrame = oldPos
+                                        Rayfield:Notify({ Title = "Gun Picked Up", Content = "Successfully collected dropped gun safely!", Duration = 3 })
                                     end
-                                    task.wait(0.05)
-                                    hrp.CFrame = oldPos
-                                    Rayfield:Notify({ Title = "Gun Picked Up", Content = "Successfully collected dropped gun safely!", Duration = 3 })
                                 end
                             end)
                         end
