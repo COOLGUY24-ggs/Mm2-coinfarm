@@ -1,21 +1,28 @@
 --[[
-    Project: Ultimate MM2 Hub (Integrated Chat Commands & Map/Murderer Selectors) | Luaroblox_helper
+    Project: Ultimate MM2 Hub (No Far Mode Notification) | Luaroblox_helper
     Language: English
 ]]
 
-local success, Rayfield = pcall(function()
-    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
-end)
+local Rayfield = nil
+local success = false
 
-if not success or not Rayfield then
-    warn("Rayfield failed to load. Trying alternative cdn...")
+local cdnUrls = {
+    "https://sirius.menu/rayfield",
+    "https://raw.githubusercontent.com/UI-Interface/CustomRayfield/main/Rayfield.lua",
+    "https://raw.githubusercontent.com/shlexware/Rayfield/main/source"
+}
+
+for _, url in ipairs(cdnUrls) do
     success, Rayfield = pcall(function()
-        return loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
+        return loadstring(game:HttpGet(url))()
     end)
+    if success and Rayfield then
+        break
+    end
 end
 
 if not success or not Rayfield then
-    error("Rayfield could not be loaded!")
+    error("All Rayfield CDNs failed to load! Check your executor's internet/HttpGet support.")
 end
 
 local Window = Rayfield:CreateWindow({
@@ -465,7 +472,7 @@ local function createGunButton()
     local btn = Instance.new("TextButton", sg)
     btn.Size = UDim2.new(0, 100, 0, 100)
     btn.Position = savedGunPosition
-    btn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    btn.BackgroundColor3 = farModeEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     btn.Text = "SHOOT"
     btn.Font = Enum.Font.SourceSansBold
@@ -501,7 +508,6 @@ local function createGunButton()
                     if tick() - holdStartTime >= 0.5 then
                         farModeEnabled = not farModeEnabled
                         btn.BackgroundColor3 = farModeEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
-                        Rayfield:Notify({ Title = "Far Mode", Content = farModeEnabled and "Far Mode Enabled!" or "Far Mode Disabled!", Duration = 2 })
                         isHolding = false
                         break
                     end
@@ -1508,7 +1514,6 @@ AdminTab:CreateButton({
     end,
 })
 
--- Dynamic Player List for Dropdowns with Auto-Refresh Logic
 local function getPlayerNames()
     local list = {}
     for _, plr in ipairs(Players:GetPlayers()) do
@@ -1568,7 +1573,6 @@ AdminTab:CreateButton({
     end,
 })
 
--- Auto-update Dropdowns when players join or leave
 Players.PlayerAdded:Connect(function()
     local updatedNames = getPlayerNames()
     sheriffDropdown:Refresh(updatedNames, true)
@@ -1576,7 +1580,7 @@ Players.PlayerAdded:Connect(function()
 end)
 
 Players.PlayerRemoving:Connect(function()
-    task.wait(0.1) -- small yield to ensure player count is fully updated
+    task.wait(0.1)
     local updatedNames = getPlayerNames()
     sheriffDropdown:Refresh(updatedNames, true)
     murdererDropdown:Refresh(updatedNames, true)
@@ -1715,7 +1719,7 @@ end)
 
 LocalPlayer.CharacterAdded:Connect(function(char)
     task.wait(1)
-    if goldJumpAction then createGoldBombButton() end
+    if goldJumpActive then createGoldBombButton() end
     if fakeJumpActive then createFakeBombButton() end
     if poolJumpActive then createPoolJumpButton() end
     if gunActive then createGunButton() end
