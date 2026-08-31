@@ -47,6 +47,7 @@ local AdminTab = Window:CreateTab("Admin", 4483362458)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local VirtualUser = game:GetService("VirtualUser")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TextChatService = game:GetService("TextChatService")
@@ -104,6 +105,7 @@ local autoTouchFlingConnection = nil
 -- Misc Vars
 local noclipEnabled = false
 local noclipConnection = nil
+local infiniteJumpEnabled = false
 
 local function getRoot(char)
     return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
@@ -1212,7 +1214,6 @@ reloadESP = function()
                 if char:FindFirstChild("RoleTextESP") then char.RoleTextESP:Destroy() end
             end
         else
-            -- Clean up if LocalPlayer somehow got an ESP instance
             if plr.Character then
                 if plr.Character:FindFirstChild("BombHubESP") then plr.Character.BombHubESP:Destroy() end
                 if plr.Character:FindFirstChild("RoleTextESP") then plr.Character.RoleTextESP:Destroy() end
@@ -1614,6 +1615,25 @@ FlingTab:CreateButton({
         end
     end,
 })
+
+MiscTab:CreateToggle({
+    Name = "Infinite Jump",
+    CurrentValue = false,
+    Flag = "InfiniteJumpToggle",
+    Callback = function(Value)
+        infiniteJumpEnabled = Value
+    end,
+})
+
+UserInputService.JumpRequest:Connect(function()
+    if infiniteJumpEnabled then
+        local character = LocalPlayer.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
 
 MiscTab:CreateToggle({
     Name = "Noclip",
