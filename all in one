@@ -1,5 +1,5 @@
 --[[
-    Project: Ultimate MM2 Hub (No Far Mode Notification) | Luaroblox_helper
+    Project: Ultimate MM2 Hub (All Players ESP Fix - Excluding LocalPlayer) | Luaroblox_helper
     Language: English
 ]]
 
@@ -74,6 +74,10 @@ local poolJumpHeight = 100
 
 local espActive = false
 local autoPickupGunActive = false
+
+-- Server Data ESP Vars
+local playerData = {}
+local playerESP = false
 
 -- Coin Farm Vars
 local autoFarmEnabled = false
@@ -460,6 +464,9 @@ local function createPoolJumpButton()
     end)
 end
 
+-- Forward declaration of reloadESP for the shoot button scope
+local reloadESP
+
 local function createGunButton()
     if playerGui:FindFirstChild("GunButtonGui") then
         playerGui.GunButtonGui:Destroy()
@@ -493,6 +500,10 @@ local function createGunButton()
     local lastClickTime = 0
     local holdStartTime = 0
     local isHolding = false
+
+    -- Triple-click ESP reload variables
+    local clickCount = 0
+    local lastClickTick = 0
 
     btn:GetPropertyChangedSignal("Position"):Connect(function()
         if sg.Parent and not locked then savedGunPosition = btn.Position end
@@ -537,6 +548,26 @@ local function createGunButton()
             dragging = false
 
             if tick() - holdStartTime < 0.5 then
+                -- Triple-click detection for reloading ESP
+                local currentTickTime = tick()
+                if currentTickTime - lastClickTick <= 0.4 then
+                    clickCount = clickCount + 1
+                else
+                    clickCount = 1
+                end
+                lastClickTick = currentTickTime
+
+                if clickCount >= 3 then
+                    clickCount = 0
+                    pcall(function()
+                        if reloadESP then
+                            reloadESP()
+                        end
+                        Rayfield:Notify({ Title = "ESP Reloaded", Content = "ESP is handmatig ververst via de shoot knop!", Duration = 2 })
+                    end)
+                    return
+                end
+
                 local currentTime = tick()
                 if currentTime - lastClickTime <= 1 then
                     if not locked then
@@ -1049,6 +1080,179 @@ local function executeFlingUntilDead(targetChar)
     end)
 end
 
+-- --- PERSISTENT SERVER DATA & COMPREHENSIVE ROLE ASSIGNMENT FIX (EXCLUDING LOCALPLAYER) --- --
+
+local persistentRoles = {}
+
+pcall(function()
+    for _, remoteName in ipairs({"SetRoles", "RoleSelection", "AssignRole", "Roles"}) do
+        local remote = ReplicatedStorage:FindFirstChild(remoteName, true)
+        if remote and remote:IsA("RemoteEvent") then
+            remote.OnClientEvent:Connect(function(...)
+                local args = {...}
+                for _, arg in ipairs(args) do
+                    if type(arg) == "table" then
+                        for k, v in pairs(arg) do
+                            local targetPlr = nil
+                            if typeof(k) == "Instance" and k:IsA("Player") then
+                                targetPlr = k
+                            elseif type(k) == "string" then
+                                targetPlr = Players:FindFirstChild(k)
+                            elseif type(k) == "number" then
+                                targetPlr = Players:GetPlayerByUserId(k)
+                            end
+                            
+                            if targetPlr and targetPlr ~= LocalPlayer then
+                                local roleVal = type(v) == "table" and (v.Role or v.RoleName or v.KRole) or tostring(v)
+                                local idStr = tostring(targetPlr.UserId)
+                                local rStr = string.lower(tostring(roleVal))
+                                if rStr:find("murd") or rStr:find("assassin") then
+                                    persistentRoles[idStr] = "Murderer"
+                                elseif rStr:find("sheriff") or rStr:find("hero") then
+                                    persistentRoles[idStr] = "Sheriff"
+                                elseif rStr:find("innocent") then
+                                    persistentRoles[idStr] = "Innocent"
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+reloadESP = function()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local char = plr.Character
+            local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            
+            if root and humanoid and humanoid.Health > 0 then
+                local userIdStr = tostring(plr.UserId)
+                local color = Color3.fromRGB(0, 255, 0)
+                local roleText = "Innocent"
+
+                local dataEntry = playerData[userIdStr] or playerData[plr.Name]
+                if dataEntry then
+                    local role = dataEntry.Role or dataEntry.RoleName or dataEntry.KRole
+                    if role then
+                        local rStr = string.lower(tostring(role))
+                        if rStr:find("murd") or rStr:find("assassin") then
+                            persistentRoles[userIdStr] = "Murderer"
+                        elseif rStr:find("sheriff") or rStr:find("hero") then
+                            persistentRoles[userIdStr] = "Sheriff"
+                        elseif rStr:find("innocent") then
+                            persistentRoles[userIdStr] = "Innocent"
+                        end
+                    end
+                end
+
+                local bp = plr:FindFirstChildOfClass("Backpack")
+                local hasGun = char:FindFirstChild("Gun") or (bp and bp:FindFirstChild("Gun"))
+                local hasKnife = char:FindFirstChild("Knife") or (bp and bp:FindFirstChild("Knife"))
+                
+                if hasGun then
+                    persistentRoles[userIdStr] = "Sheriff"
+                elseif hasKnife then
+                    persistentRoles[userIdStr] = "Murderer"
+                end
+
+                local currentCachedRole = persistentRoles[userIdStr]
+                if currentCachedRole == "Murderer" then
+                    color = Color3.fromRGB(255, 0, 0)
+                    roleText = "Murderer"
+                elseif currentCachedRole == "Sheriff" then
+                    color = Color3.fromRGB(0, 100, 255)
+                    roleText = "Sheriff"
+                else
+                    persistentRoles[userIdStr] = "Innocent"
+                    color = Color3.fromRGB(0, 255, 0)
+                    roleText = "Innocent"
+                end
+                
+                local hl = char:FindFirstChild("BombHubESP")
+                if not hl then
+                    hl = Instance.new("Highlight")
+                    hl.Name = "BombHubESP"
+                    hl.Adornee = char
+                    hl.Parent = char
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                end
+                hl.FillColor = color
+                hl.OutlineColor = color
+                hl.FillTransparency = 0.5
+
+                local textGui = char:FindFirstChild("RoleTextESP")
+                if not textGui then
+                    textGui = Instance.new("BillboardGui")
+                    textGui.Name = "RoleTextESP"
+                    textGui.Size = UDim2.new(0, 160, 0, 60)
+                    textGui.StudsOffset = Vector3.new(0, 3, 0)
+                    textGui.AlwaysOnTop = true
+                    textGui.Parent = char
+
+                    local label = Instance.new("TextLabel", textGui)
+                    label.Name = "Title"
+                    label.Size = UDim2.new(1, 0, 1, 0)
+                    label.BackgroundTransparency = 1
+                    label.TextScaled = true
+                    label.Font = Enum.Font.SourceSansBold
+                    label.TextStrokeTransparency = 0
+                end
+
+                local lbl = textGui:FindFirstChild("Title")
+                if lbl then
+                    lbl.Text = plr.Name .. "\n[" .. roleText .. "]"
+                    lbl.TextColor3 = color
+                end
+            else
+                if char:FindFirstChild("BombHubESP") then char.BombHubESP:Destroy() end
+                if char:FindFirstChild("RoleTextESP") then char.RoleTextESP:Destroy() end
+            end
+        else
+            -- Clean up if LocalPlayer somehow got an ESP instance
+            if plr.Character then
+                if plr.Character:FindFirstChild("BombHubESP") then plr.Character.BombHubESP:Destroy() end
+                if plr.Character:FindFirstChild("RoleTextESP") then plr.Character.RoleTextESP:Destroy() end
+            end
+        end
+    end
+end
+
+pcall(function()
+    ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("PlayerDataChanged", 5).OnClientEvent:Connect(function(data)
+        if type(data) == "table" then
+            for k, v in pairs(data) do
+                local targetPlr = Players:GetPlayerByUserId(tonumber(k) or 0) or Players:FindFirstChild(tostring(k))
+                if targetPlr and targetPlr ~= LocalPlayer then
+                    playerData[k] = v
+                    local role = v.Role or v.RoleName or v.KRole
+                    if role then
+                        local rStr = string.lower(tostring(role))
+                        if rStr:find("murd") or rStr:find("assassin") then
+                            persistentRoles[tostring(k)] = "Murderer"
+                        elseif rStr:find("sheriff") or rStr:find("hero") then
+                            persistentRoles[tostring(k)] = "Sheriff"
+                        elseif rStr:find("innocent") then
+                            persistentRoles[tostring(k)] = "Innocent"
+                        end
+                    end
+                end
+            end
+        end
+        if playerESP then
+            reloadESP()
+        end
+    end)
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+    persistentRoles[tostring(plr.UserId)] = nil
+    playerData[tostring(plr.UserId)] = nil
+end)
+
 -- --- UI SETUP --- --
 
 CombatTab:CreateToggle({
@@ -1104,11 +1308,12 @@ CombatTab:CreateToggle({
 })
 
 CombatTab:CreateToggle({
-    Name = "ESP (Sheriff: Blue, Murderer: Red, Innocent: Green, GunDrop: Yellow)",
+    Name = "ESP (Server Roles + Names)",
     CurrentValue = false,
     Flag = "Esptoggle",
     Callback = function(Value)
         espActive = Value
+        playerESP = Value
     end,
 })
 
@@ -1586,131 +1791,71 @@ Players.PlayerRemoving:Connect(function()
     murdererDropdown:Refresh(updatedNames, true)
 end)
 
--- --- ESP & AUTO PICKUP GUN LOOP --- --
-task.spawn(function()
-    while true do
-        task.wait(0.2)
-        if espActive then
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr ~= LocalPlayer and plr.Character then
-                    local char = plr.Character
-                    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
-                    
-                    if root then
-                        local bp = plr:FindFirstChildOfClass("Backpack")
-                        local hasGun = char:FindFirstChild("Gun") or (bp and bp:FindFirstChild("Gun"))
-                        local hasKnife = char:FindFirstChild("Knife") or (bp and bp:FindFirstChild("Knife"))
-                        
-                        local color = Color3.fromRGB(0, 255, 0)
-                        local roleText = "Innocent"
-                        if hasGun then
-                            color = Color3.fromRGB(0, 100, 255)
-                            roleText = "Sheriff"
-                        elseif hasKnife then
-                            color = Color3.fromRGB(255, 0, 0)
-                            roleText = "Murderer"
-                        end
-                        
-                        local hl = char:FindFirstChild("BombHubESP")
-                        if not hl then
-                            hl = Instance.new("Highlight")
-                            hl.Name = "BombHubESP"
-                            hl.Adornee = char
-                            hl.Parent = char
-                            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                        end
-                        hl.FillColor = color
-                        hl.OutlineColor = color
-                        hl.FillTransparency = 0.5
+-- --- HIGH-FREQUENCY ESP & AUTO PICKUP GUN LOOP --- --
+RunService.Heartbeat:Connect(function()
+    if espActive then
+        reloadESP()
 
-                        local textGui = char:FindFirstChild("RoleTextESP")
-                        if not textGui then
-                            textGui = Instance.new("BillboardGui")
-                            textGui.Name = "RoleTextESP"
-                            textGui.Size = UDim2.new(0, 120, 0, 50)
-                            textGui.StudsOffset = Vector3.new(0, 3, 0)
-                            textGui.AlwaysOnTop = true
-                            textGui.Parent = char
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj.Name == "GunDrop" then
+                local targetPart = obj:IsA("BasePart") and obj or (obj:IsA("Model") and obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart"))
+                if targetPart then
+                    local dropGui = targetPart:FindFirstChild("GunDropTextESP")
+                    if not dropGui then
+                        dropGui = Instance.new("BillboardGui")
+                        dropGui.Name = "GunDropTextESP"
+                        dropGui.Size = UDim2.new(0, 150, 0, 50)
+                        dropGui.StudsOffset = Vector3.new(0, 2, 0)
+                        dropGui.AlwaysOnTop = true
+                        dropGui.Parent = targetPart
 
-                            local label = Instance.new("TextLabel", textGui)
-                            label.Name = "Title"
-                            label.Size = UDim2.new(1, 0, 1, 0)
-                            label.BackgroundTransparency = 1
-                            label.TextScaled = true
-                            label.Font = Enum.Font.SourceSansBold
-                            label.TextStrokeTransparency = 0
-                        end
-
-                        local lbl = textGui:FindFirstChild("Title")
-                        if lbl then
-                            lbl.Text = roleText .. " (" .. plr.Name .. ")"
-                            lbl.TextColor3 = color
-                        end
+                        local dropLabel = Instance.new("TextLabel", dropGui)
+                        dropLabel.Name = 'Label'
+                        dropLabel.Size = UDim2.new(1, 0, 1, 0)
+                        dropLabel.BackgroundTransparency = 1
+                        dropLabel.Text = "dropped gun."
+                        dropLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+                        dropLabel.TextScaled = true
+                        dropLabel.Font = Enum.Font.SourceSansBold
+                        dropLabel.TextStrokeTransparency = 0
                     end
-                end
-            end
 
-            for _, obj in ipairs(workspace:GetDescendants()) do
-                if obj.Name == "GunDrop" then
-                    local targetPart = obj:IsA("BasePart") and obj or (obj:IsA("Model") and obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart"))
-                    if targetPart then
-                        local dropGui = targetPart:FindFirstChild("GunDropTextESP")
-                        if not dropGui then
-                            dropGui = Instance.new("BillboardGui")
-                            dropGui.Name = "GunDropTextESP"
-                            dropGui.Size = UDim2.new(0, 150, 0, 50)
-                            dropGui.StudsOffset = Vector3.new(0, 2, 0)
-                            dropGui.AlwaysOnTop = true
-                            dropGui.Parent = targetPart
-
-                            local dropLabel = Instance.new("TextLabel", dropGui)
-                            dropLabel.Name = "Label"
-                            dropLabel.Size = UDim2.new(1, 0, 1, 0)
-                            dropLabel.BackgroundTransparency = 1
-                            dropLabel.Text = "dropped gun."
-                            dropLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
-                            dropLabel.TextScaled = true
-                            dropLabel.Font = Enum.Font.SourceSansBold
-                            dropLabel.TextStrokeTransparency = 0
-                        end
-
-                        if autoPickupGunActive then
-                            pcall(function()
-                                local character = LocalPlayer.Character
-                                local hrp = character and character:FindFirstChild("HumanoidRootPart")
-                                if hrp and targetPart then
-                                    local distToGun = (hrp.Position - targetPart.Position).Magnitude
-                                    if distToGun <= 1500 and (targetPart.Position - Vector3.new(1, -66, -17)).Magnitude > 25 then
-                                        local oldPos = hrp.CFrame
-                                        hrp.CFrame = targetPart.CFrame + Vector3.new(0, 1, 0)
-                                        task.wait(0.05)
-                                        if firetouchinterest then
-                                            firetouchinterest(hrp, targetPart, 0)
-                                            firetouchinterest(hrp, targetPart, 1)
-                                        end
-                                        task.wait(0.05)
-                                        hrp.CFrame = oldPos
-                                        Rayfield:Notify({ Title = "Gun Picked Up", Content = "Successfully collected dropped gun safely!", Duration = 3 })
+                    if autoPickupGunActive then
+                        pcall(function()
+                            local character = LocalPlayer.Character
+                            local hrp = character and character:FindFirstChild("HumanoidRootPart")
+                            if hrp and targetPart then
+                                local distToGun = (hrp.Position - targetPart.Position).Magnitude
+                                if distToGun <= 1500 and (targetPart.Position - Vector3.new(1, -66, -17)).Magnitude > 25 then
+                                    local oldPos = hrp.CFrame
+                                    hrp.CFrame = targetPart.CFrame + Vector3.new(0, 1, 0)
+                                    task.wait(0.05)
+                                    if firetouchinterest then
+                                         firetouchinterest(hrp, targetPart, 0)
+                                         firetouchinterest(hrp, targetPart, 1)
                                     end
+                                    task.wait(0.05)
+                                    hrp.CFrame = oldPos
+                                    Rayfield:Notify({ Title = "Gun Picked Up", Content = "Successfully collected dropped gun safely!", Duration = 3 })
                                 end
-                            end)
-                        end
+                            end
+                        end)
                     end
                 end
             end
-        else
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr.Character then
-                    if plr.Character:FindFirstChild("BombHubESP") then plr.Character.BombHubESP:Destroy() end
-                    if plr.Character:FindFirstChild("RoleTextESP") then plr.Character.RoleTextESP:Destroy() end
-                end
+        end
+    else
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr.Character then
+                if plr.Character:FindFirstChild("BombHubESP") then plr.Character.BombHubESP:Destroy() end
+                if plr.Character:FindFirstChild("RoleTextESP") then plr.Character.RoleTextESP:Destroy() end
             end
-            for _, obj in ipairs(workspace:GetDescendants()) do
-                if obj.Name == "GunDrop" then
-                    local targetPart = obj:IsA("BasePart") and obj or (obj:IsA("Model") and obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart"))
-                    if targetPart and targetPart:FindFirstChild("GunDropTextESP") then
-                        targetPart.GunDropTextESP:Destroy()
-                    end
+        end
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj.Name == "GunDrop" then
+                local targetPart = obj:IsA("BasePart") and obj or (obj:IsA("Model") and obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart"))
+                if targetPart and targetPart:FindFirstChild("GunDropTestESP") then
+                    targetPart.GunDropTextESP:Destroy()
                 end
             end
         end
