@@ -143,7 +143,7 @@ local function sendChatMessage(message)
     end
 end
 
--- --- PREDICTION FUNCTION --- --
+-- --- PREDICTION FUNCTION (UPDATED) --- --
 local function getAdvancedPredictedPosition(shooterHrp, targetHrp, projectileSpeed)
     local targetPos = targetHrp.Position
     local targetVel = targetHrp.AssemblyLinearVelocity
@@ -157,16 +157,17 @@ local function getAdvancedPredictedPosition(shooterHrp, targetHrp, projectileSpe
     local distance = (shooterHrp.Position - targetPos).Magnitude
     local timeOfFlight = distance / projectileSpeed
 
-    local predictionFactor = 0.40
+    -- Verbeterde predictieformule met extra correctiefactor voor bewegende spelers
+    local predictionFactor = 0.65
 
     if distance >= 35 then
-        predictionFactor = 0.95
+        predictionFactor = 1.15
     elseif distance >= 25 then
-        predictionFactor = 0.75
+        predictionFactor = 0.90
     elseif distance >= 15 then
-        predictionFactor = 0.45
+        predictionFactor = 0.60
     else
-        predictionFactor = 0.10
+        predictionFactor = 0.25
     end
 
     local predictedPos = targetPos + (relativeVel * (timeOfFlight * predictionFactor))
@@ -688,7 +689,6 @@ local function createGunButton()
                             local startPosCFrame = gunTool:FindFirstChild("Handle") and gunTool.Handle.CFrame or hrp.CFrame
                             
                             local predictedMurdererPos = getAdvancedPredictedPosition(hrp, murdererHrp, 350)
-                            -- PRECIES 1 STUD ACHTER HEM/HAAR:
                             local backOffset = murdererHrp.CFrame.LookVector * -1.0
                             predictedMurdererPos = predictedMurdererPos + backOffset
 
@@ -829,14 +829,11 @@ local function createBuffedShootButton()
             hrp.CFrame = murdererHrp.CFrame + Vector3.new(0, 3.5, 0)
             hrp.AssemblyLinearVelocity = Vector3.zero
 
-            task.wait(0.1)
-
             local gunTool = char:FindFirstChild("Gun")
             local shootRemote = gunTool and gunTool:FindFirstChild("Shoot")
             if shootRemote then
                 local startPosCFrame = gunTool:FindFirstChild("Handle") and gunTool.Handle.CFrame or hrp.CFrame
                 local predictedMurdererPos = getAdvancedPredictedPosition(hrp, murdererHrp, 350)
-                -- PRECIES 1 STUD ACHTER HEM/HAAR:
                 local backOffset = murdererHrp.CFrame.LookVector * -1.0
                 predictedMurdererPos = predictedMurdererPos + backOffset
 
@@ -846,6 +843,8 @@ local function createBuffedShootButton()
                 }
                 pcall(function() shootRemote:FireServer(unpack(args)) end)
             end
+
+            task.wait(0.1)
 
             hrp.CFrame = originalCFrame
             hrp.AssemblyLinearVelocity = Vector3.zero
