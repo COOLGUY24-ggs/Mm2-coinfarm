@@ -1,26 +1,99 @@
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+--[[
+    Project: Ultimate MM2 Hub (Safe Fake-Touch Gun Pickup + External Fly Integration) | Luaroblox_helper
+    Language: English
+]]
+
+local Rayfield = nil
+local success = false
+
+local cdnUrls = {
+    "https://sirius.menu/rayfield",
+    "https://raw.githubusercontent.com/UI-Interface/CustomRayfield/main/Rayfield.lua",
+    "https://raw.githubusercontent.com/shlexware/Rayfield/main/source"
+}
+
+for _, url in ipairs(cdnUrls) do
+    success, Rayfield = pcall(function()
+        return loadstring(game:HttpGet(url))()
+    end)
+    if success and Rayfield then
+        break
+    end
+end
+
+if not success or not Rayfield then
+    error("All Rayfield CDNs failed to load! Check your executor's internet/HttpGet support.")
+end
 
 local Window = Rayfield:CreateWindow({
-   Name = "MM2 Auto Coin Farm | Luaroblox_helper",
-   LoadingTitle = "Loading MM2 Script...",
-   LoadingSubtitle = "by Luaroblox_helper",
-   ConfigurationSaving = { 
-      Enabled = true,
-      FolderName = "LuarobloxHelperMM2",
-      FileName = "AutoFarmConfig"
-   },
-   KeySystem = false,
+    Name = "Ultimate MM2 Hub",
+    LoadingTitle = "Loading Ultimate MM2 Hub...",
+    LoadingSubtitle = "by Luaroblox_helper",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "LuarobloxHelperMM2",
+        FileName = "UltimateMM2Config"
+    },
+    KeySystem = false,
 })
 
-local Tab = Window:CreateTab("Coin Farm", 4483362458)
+-- Tabs
+local CombatTab = Window:CreateTab("Toggles", 4483362458)
+local FarmTab = Window:CreateTab("Coin Farm", 4483362458)
+local KillTab = Window:CreateTab("Kill Tab", 4483362458)
+local FlingTab = Window:CreateTab("Fling", 4483362458)
 local MiscTab = Window:CreateTab("Misc", 4483345998)
+local AdminTab = Window:CreateTab("Admin", 4483362458)
+
+-- Add informative label to every tab as requested
+local infoText = "💡 Hold the shoot button for far mode and double click to permanently keep it there till u leave"
+CombatTab:CreateLabel(infoText)
+FarmTab:CreateLabel(infoText)
+KillTab:CreateLabel(infoText)
+FlingTab:CreateLabel(infoText)
+MiscTab:CreateLabel(infoText)
+AdminTab:CreateLabel(infoText)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local VirtualUser = game:GetService("VirtualUser")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextChatService = game:GetService("TextChatService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
+local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 
+-- UI Positions & States
+local savedGoldPosition = UDim2.new(0.5, -65, 0.7, -22)
+local goldJumpActive = false
+local goldLockedPermanently = false
+
+local savedFakePosition = UDim2.new(0.5, -65, 0.6, -22)
+local fakeJumpActive = false
+local fakeLockedPermanently = false
+
+local savedGunPosition = UDim2.new(0.5, -65, 0.5, -22)
+local gunActive = false
+local gunLockedPermanently = false
+
+local savedBuffedPosition = UDim2.new(0.5, -65, 0.35, -22)
+local buffedActive = false
+local buffedLockedPermanently = false
+
+local savedPoolPosition = UDim2.new(0.5, -65, 0.4, -22)
+local poolJumpActive = false
+local poolLockedPermanently = false
+local poolJumpHeight = 100
+
+local espActive = false
+local autoPickupGunActive = false
+
+-- Server Data ESP Vars
+local playerData = {}
+local playerESP = false
+
+-- Coin Farm Vars
 local autoFarmEnabled = false
 local antiAfkEnabled = false
 local autoResetEnabled = false
@@ -29,27 +102,766 @@ local tweenSpeed = 25
 local coinMode = "Closest"
 local antiAfkInterval = 15
 local maxAttemptsLimit = 10
-
 local failedAttempts = {}
-local MAX_DISTANCE = 1000
+local MAX_DISTANCE = 1500
 local isExecutingCombat = false
+local farModeEnabled = false
 
--- Anti-AFK Connection Setup
+-- Fling Vars
+local targetPlayerName = ""
+local isFlinging = false
+local antiFlingEnabled = false
+local antiFlingConnection = nil
+local autoTouchFlingEnabled = false
+local autoTouchFlingConnection = nil
+
+-- Misc Vars
+local noclipEnabled = false
+local noclipConnection = nil
+local infiniteJumpEnabled = false
+
+local function getRoot(char)
+    return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+end
+
+-- --- CHAT HELPER FUNCTION --- --
+local function sendChatMessage(message)
+    local successChat = pcall(function()
+        if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+            local textChannel = TextChatService.TextChannels:FindFirstChild("RBXGeneral")
+            if textChannel then
+                textChannel:SendAsync(message)
+            end
+        else
+            game:GetService("ReplicatedStorage"):WaitForChild("DefaultChatSystemChatEvents"):WaitForChild("SayMessageRequest"):FireServer(message, "All")
+        end
+    end)
+    if not successChat then
+        pcall(function()
+            game:GetService("ReplicatedStorage"):WaitForChild("DefaultChatSystemChatEvents"):WaitForChild("SayMessageRequest"):FireServer(message, "All")
+        end)
+    end
+end
+
+-- --- PREDICTION FUNCTION --- --
+local function getAdvancedPredictedPosition(shooterHrp, targetHrp, projectileSpeed)
+    local targetPos = targetHrp.Position
+    local targetVel = targetHrp.AssemblyLinearVelocity
+    local shooterVel = shooterHrp.AssemblyLinearVelocity
+
+    local relativeVel = targetVel - shooterVel
+    local distance = (shooterHrp.Position - targetPos).Magnitude
+    local timeOfFlight = distance / projectileSpeed
+
+    local predictionFactor = 0.40
+
+    if distance >= 35 then
+        predictionFactor = 0.95
+    elseif distance >= 25 then
+        predictionFactor = 0.75
+    elseif distance >= 15 then
+        predictionFactor = 0.45
+    else
+        predictionFactor = 0.10
+    end
+
+    local predictedPos = targetPos + (relativeVel * (timeOfFlight * predictionFactor))
+    return predictedPos
+end
+
+-- --- BOMB HUB & COMBAT FUNCTIONS --- --
+
+local function createGoldBombButton()
+    if playerGui:FindFirstChild("GoldBombJumpGui") then
+        playerGui.GoldBombJumpGui:Destroy()
+    end
+
+    local sg = Instance.new("ScreenGui", playerGui)
+    sg.Name = "GoldBombJumpGui"
+    sg.ResetOnSpawn = false
+
+    local btn = Instance.new("TextButton", sg)
+    btn.Size = UDim2.new(0, 130, 0, 45)
+    btn.Position = savedGoldPosition
+    btn.BackgroundColor3 = Color3.fromRGB(255, 170, 0)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = "Bomb Jump"
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 16
+    btn.Active = true
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
+
+    local lockLabel = Instance.new("TextLabel", btn)
+    lockLabel.Size = UDim2.new(0, 20, 0, 20)
+    lockLabel.Position = UDim2.new(1, -22, 0, 2)
+    lockLabel.BackgroundTransparency = 1
+    lockLabel.Text = "🔒"
+    lockLabel.TextSize = 14
+    lockLabel.Visible = goldLockedPermanently
+
+    local locked = goldLockedPermanently
+    local dragging, dragStart, startPos = false, nil, nil
+    local lastExecution = 0
+    local lastClickTime = 0
+
+    btn:GetPropertyChangedSignal("Position"):Connect(function()
+        if sg.Parent and not locked then savedGoldPosition = btn.Position end
+    end)
+
+    btn.InputBegan:Connect(function(i)
+        if not locked and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
+            dragging = true
+            dragStart = i.Position
+            startPos = btn.Position
+        end
+    end)
+
+    game:GetService("UserInputService").InputChanged:Connect(function(i)
+        if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local delta = i.Position - dragStart
+            btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            savedGoldPosition = btn.Position
+        end
+    end)
+
+    btn.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = false end
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        local currentTime = tick()
+        if currentTime - lastClickTime <= 1 then
+            if not locked then
+                locked = true
+                goldLockedPermanently = true
+                lockLabel.Visible = true
+                dragging = false
+            end
+            lastClickTime = 0
+        else
+            lastClickTime = currentTime
+        end
+
+        local now = tick()
+        if now - lastExecution < 3.5 then
+            btn.Text = "wait.."
+            task.delay(1, function() if btn.Text == "wait.." then btn.Text = "Bomb Jump" end end)
+        else
+            lastExecution = now
+            local char = LocalPlayer.Character
+            if char then
+                local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+                local bomb = char:FindFirstChild("GoldBomb") or (backpack and backpack:FindFirstChild("GoldBomb"))
+                if bomb and bomb.Parent == backpack then bomb.Parent = char end
+                
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hum and hrp then
+                    local spawnCFrame = hrp.CFrame - Vector3.new(0, 3.2, 0)
+                    pcall(function()
+                        if char:FindFirstChild("GoldBomb") then
+                            char.GoldBomb:WaitForChild("Remote"):FireServer(spawnCFrame, 50)
+                        end
+                    end)
+                    hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 55, hrp.AssemblyLinearVelocity.Z)
+                    task.delay(0.2, function()
+                        local currentBomb = char:FindFirstChild("GoldBomb")
+                        if currentBomb and backpack then currentBomb.Parent = backpack end
+                    end)
+                end
+            end
+        end
+    end)
+
+    task.spawn(function()
+        while goldJumpActive and sg.Parent do
+            pcall(function()
+                ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Extras"):WaitForChild("ReplicateToy"):InvokeServer("GoldBomb")
+            end)
+            task.wait(3)
+        end
+    end)
+end
+
+local function createFakeBombButton()
+    if playerGui:FindFirstChild("FakeBombJumpGui") then
+        playerGui.FakeBombJumpGui:Destroy()
+    end
+
+    local sg = Instance.new("ScreenGui", playerGui)
+    sg.Name = "FakeBombJumpGui"
+    sg.ResetOnSpawn = false
+
+    local btn = Instance.new("TextButton", sg)
+    btn.Size = UDim2.new(0, 130, 0, 45)
+    btn.Position = savedFakePosition
+    btn.BackgroundColor3 = Color3.fromRGB(120, 120, 120)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = "Fake Bomb"
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 16
+    btn.Active = true
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
+
+    local lockLabel = Instance.new("TextLabel", btn)
+    lockLabel.Size = UDim2.new(0, 20, 0, 20)
+    lockLabel.Position = UDim2.new(1, -22, 0, 2)
+    lockLabel.BackgroundTransparency = 1
+    lockLabel.Text = "🔒"
+    lockLabel.TextSize = 14
+    lockLabel.Visible = fakeLockedPermanently
+
+    local locked = fakeLockedPermanently
+    local dragging, dragStart, startPos = false, nil, nil
+    local lastExecution = 0
+    local lastClickTime = 0
+
+    btn:GetPropertyChangedSignal("Position"):Connect(function()
+        if sg.Parent and not locked then savedFakePosition = btn.Position end
+    end)
+
+    btn.InputBegan:Connect(function(i)
+        if not locked and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
+            dragging = true
+            dragStart = i.Position
+            startPos = btn.Position
+        end
+    end)
+
+    game:GetService("UserInputService").InputChanged:Connect(function(i)
+        if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local delta = i.Position - dragStart
+            btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            savedFakePosition = btn.Position
+        end
+    end)
+
+    btn.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = false end
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        local currentTime = tick()
+        if currentTime - lastClickTime <= 1 then
+            if not locked then
+                locked = true
+                fakeLockedPermanently = true
+                lockLabel.Visible = true
+                dragging = false
+            end
+            lastClickTime = 0
+        else
+            lastClickTime = currentTime
+        end
+
+        local now = tick()
+        if now - lastExecution < 19.5 then
+            btn.Text = "wait.."
+            task.delay(1, function() if btn.Text == "wait.." then btn.Text = "Fake Bomb" end end)
+        else
+            lastExecution = now
+            local char = LocalPlayer.Character
+            if char then
+                local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+                local bomb = char:FindFirstChild("FakeBomb") or (backpack and backpack:FindFirstChild("FakeBomb"))
+                if bomb and bomb.Parent == backpack then bomb.Parent = char end
+                
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hum and hrp then
+                    local spawnCFrame = hrp.CFrame - Vector3.new(0, 3.2, 0)
+                    pcall(function()
+                        if char:FindFirstChild("FakeBomb") then
+                            char.FakeBomb:WaitForChild("Remote"):FireServer(spawnCFrame, 50)
+                        end
+                    end)
+                    hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 55, hrp.AssemblyLinearVelocity.Z)
+                    task.delay(0.2, function()
+                        local currentBomb = char:FindFirstChild("FakeBomb")
+                        if currentBomb and backpack then currentBomb.Parent = backpack end
+                    end)
+                end
+            end
+        end
+    end)
+
+    task.spawn(function()
+        while fakeJumpActive and sg.Parent do
+            pcall(function()
+                ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Extras"):WaitForChild("ReplicateToy"):InvokeServer("FakeBomb")
+            end)
+            task.wait(3)
+        end
+    end)
+end
+
+local function createPoolJumpButton()
+    if playerGui:FindFirstChild("PoolJumpGui") then
+        playerGui.PoolJumpGui:Destroy()
+    end
+
+    local sg = Instance.new("ScreenGui", playerGui)
+    sg.Name = "PoolJumpGui"
+    sg.ResetOnSpawn = false
+
+    local btn = Instance.new("TextButton", sg)
+    btn.Size = UDim2.new(0, 130, 0, 45)
+    btn.Position = savedPoolPosition
+    btn.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = "Pool Jump"
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 16
+    btn.Active = true
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
+
+    local lockLabel = Instance.new("TextLabel", btn)
+    lockLabel.Size = UDim2.new(0, 20, 0, 20)
+    lockLabel.Position = UDim2.new(1, -22, 0, 2)
+    lockLabel.BackgroundTransparency = 1
+    lockLabel.Text = "🔒"
+    lockLabel.TextSize = 14
+    lockLabel.Visible = poolLockedPermanently
+
+    local locked = poolLockedPermanently
+    local dragging, dragStart, startPos = false, nil, nil
+    local lastClickTime = 0
+
+    btn:GetPropertyChangedSignal("Position"):Connect(function()
+        if sg.Parent and not locked then savedPoolPosition = btn.Position end
+    end)
+
+    btn.InputBegan:Connect(function(i)
+        if not locked and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
+            dragging = true
+            dragStart = i.Position
+            startPos = btn.Position
+        end
+    end)
+
+    game:GetService("UserInputService").InputChanged:Connect(function(i)
+        if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local delta = i.Position - dragStart
+            btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            savedPoolPosition = btn.Position
+        end
+    end)
+
+    btn.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = false end
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        local currentTime = tick()
+        if currentTime - lastClickTime <= 1 then
+            if not locked then
+                locked = true
+                poolLockedPermanently = true
+                lockLabel.Visible = true
+                dragging = false
+            end
+            lastClickTime = 0
+        else
+            lastClickTime = currentTime
+        end
+
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            task.spawn(function()
+                for i = 1, 15 do
+                    hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(45), 0)
+                    task.wait(0.02)
+                end
+                hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, poolJumpHeight, hrp.AssemblyLinearVelocity.Z)
+            end)
+        end
+    end)
+end
+
+-- Forward declaration of reloadESP for the shoot button scope
+local reloadESP
+
+local function createGunButton()
+    if playerGui:FindFirstChild("GunButtonGui") then
+        playerGui.GunButtonGui:Destroy()
+    end
+
+    local sg = Instance.new("ScreenGui", playerGui)
+    sg.Name = "GunButtonGui"
+    sg.ResetOnSpawn = false
+
+    local btn = Instance.new("TextButton", sg)
+    btn.Size = UDim2.new(0, 100, 0, 100)
+    btn.Position = savedGunPosition
+    btn.BackgroundColor3 = farModeEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = "SHOOT"
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 20
+    btn.Active = true
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 12)
+
+    local lockLabel = Instance.new("TextLabel", btn)
+    lockLabel.Size = UDim2.new(0, 20, 0, 20)
+    lockLabel.Position = UDim2.new(1, -22, 0, 2)
+    lockLabel.BackgroundTransparency = 1
+    lockLabel.Text = "🔒"
+    lockLabel.TextSize = 14
+    lockLabel.Visible = gunLockedPermanently
+
+    local locked = gunLockedPermanently
+    local dragging, dragStart, startPos = false, nil, nil
+    local lastClickTime = 0
+    local holdStartTime = 0
+    local isHolding = false
+
+    -- Triple-click ESP reload variables
+    local clickCount = 0
+    local lastClickTick = 0
+
+    btn:GetPropertyChangedSignal("Position"):Connect(function()
+        if sg.Parent and not locked then savedGunPosition = btn.Position end
+    end)
+
+    btn.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            holdStartTime = tick()
+            isHolding = true
+
+            task.spawn(function()
+                while isHolding do
+                    if tick() - holdStartTime >= 0.5 then
+                        farModeEnabled = not farModeEnabled
+                        btn.BackgroundColor3 = farModeEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+                        isHolding = false
+                        break
+                    end
+                    task.wait(0.05)
+                end
+            end)
+
+            if not locked then
+                dragging = true
+                dragStart = i.Position
+                startPos = btn.Position
+            end
+        end
+    end)
+
+    game:GetService("UserInputService").InputChanged:Connect(function(i)
+        if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local delta = i.Position - dragStart
+            btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            savedGunPosition = btn.Position
+        end
+    end)
+
+    btn.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            isHolding = false
+            dragging = false
+
+            if tick() - holdStartTime < 0.5 then
+                -- Triple-click detection for reloading ESP
+                local currentTickTime = tick()
+                if currentTickTime - lastClickTick <= 0.4 then
+                    clickCount = clickCount + 1
+                else
+                    clickCount = 1
+                end
+                lastClickTick = currentTickTime
+
+                if clickCount >= 3 then
+                    clickCount = 0
+                    pcall(function()
+                        if reloadESP then
+                            reloadESP()
+                        end
+                        Rayfield:Notify({ Title = "ESP Reloaded", Content = "ESP is handmatig ververst via de shoot knop!", Duration = 2 })
+                    end)
+                    return
+                end
+
+                local currentTime = tick()
+                if currentTime - lastClickTime <= 1 then
+                    if not locked then
+                        locked = true
+                        gunLockedPermanently = true
+                        lockLabel.Visible = true
+                        dragging = false
+                    end
+                    lastClickTime = 0
+                else
+                    lastClickTime = currentTime
+
+                    local char = LocalPlayer.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+                    if not hrp then return end
+
+                    local gun = (char and char:FindFirstChild("Gun")) or (backpack and backpack:FindFirstChild("Gun"))
+                    local knife = (char and char:FindFirstChild("Knife")) or (backpack and backpack:FindFirstChild("Knife"))
+
+                    if not gun and knife then
+                        if backpack and backpack:FindFirstChild("Knife") then
+                            for _, child in ipairs(char:GetChildren()) do if child:IsA("Tool") then child.Parent = backpack end end
+                            backpack.Knife.Parent = char
+                        end
+
+                        local targetHrp = nil
+                        local shortestDist = math.huge
+                        for _, plr in ipairs(Players:GetPlayers()) do
+                            if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                                local pHum = plr.Character:FindFirstChildOfClass("Humanoid")
+                                if pHum and pHum.Health > 0 then
+                                    local dist = (hrp.Position - plr.Character.HumanoidRootPart.Position).Magnitude
+                                    if dist < shortestDist then
+                                        shortestDist = dist
+                                        targetHrp = plr.Character.HumanoidRootPart
+                                    end
+                                end
+                            end
+                        end
+
+                        local knifeTool = char and char:FindFirstChild("Knife")
+                        local throwRemote = knifeTool and knifeTool:FindFirstChild("Events") and knifeTool.Events:FindFirstChild("KnifeThrown")
+
+                        if targetHrp and throwRemote then
+                            local knifeHandle = knifeTool:FindFirstChild("Handle")
+                            local startPosCFrame = knifeHandle and knifeHandle.CFrame or hrp.CFrame
+                            
+                            local predictedPos = getAdvancedPredictedPosition(hrp, targetHrp, 130)
+                            if farModeEnabled then
+                                predictedPos = predictedPos + (targetHrp.AssemblyLinearVelocity * 0.5)
+                            end
+
+                            local args = {
+                                CFrame.new(startPosCFrame.Position, predictedPos),
+                                targetHrp.CFrame
+                            }
+                            pcall(function() throwRemote:FireServer(unpack(args)) end)
+                        end
+                        return
+                    end
+
+                    if not gun then
+                        btn.Text = "No gun/knife"
+                        task.delay(1.5, function() if btn.Text == "No gun/knife" then btn.Text = "SHOOT" end end)
+                        return
+                    end
+
+                    if backpack and backpack:FindFirstChild("Gun") then
+                        for _, child in ipairs(char:GetChildren()) do if child:IsA("Tool") then child.Parent = backpack end end
+                        backpack.Gun.Parent = char
+                    end
+
+                    local murdererHrp = nil
+                    local shortestMurdererDist = math.huge
+                    for _, plr in ipairs(Players:GetPlayers()) do
+                        if plr ~= LocalPlayer and plr.Character then
+                            local pChar = plr.Character
+                            local pBackpack = plr:FindFirstChildOfClass("Backpack")
+                            local pHum = pChar:FindFirstChildOfClass("Humanoid")
+                            local pRoot = pChar:FindFirstChild("HumanoidRootPart")
+                            
+                            if pHum and pHum.Health > 0 and pRoot then
+                                local hasKnife = pChar:FindFirstChild("Knife") or (pBackpack and pBackpack:FindFirstChild("Knife"))
+                                if hasKnife then
+                                    local dist = (hrp.Position - pRoot.Position).Magnitude
+                                    if dist < shortestMurdererDist then
+                                        shortestMurdererDist = dist
+                                        murdererHrp = pRoot
+                                    end
+                                end
+                            end
+                        end
+                    end
+
+                    if murdererHrp and char and char:FindFirstChild("Gun") then
+                        local gunTool = char:FindFirstChild("Gun")
+                        local shootRemote = gunTool:FindFirstChild("Shoot")
+                        if shootRemote then
+                            local startPosCFrame = gunTool:FindFirstChild("Handle") and gunTool.Handle.CFrame or hrp.CFrame
+                            
+                            local predictedMurdererPos = getAdvancedPredictedPosition(hrp, murdererHrp, 350)
+                            if farModeEnabled then
+                                predictedMurdererPos = predictedMurdererPos + (murdererHrp.AssemblyLinearVelocity * 0.5)
+                            end
+
+                            local args = {
+                                CFrame.new(startPosCFrame.Position, predictedMurdererPos),
+                                murdererHrp.CFrame
+                            }
+                            pcall(function() shootRemote:FireServer(unpack(args)) end)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function createBuffedShootButton()
+    if playerGui:FindFirstChild("BuffedShootButtonGui") then
+        playerGui.BuffedShootButtonGui:Destroy()
+    end
+
+    local sg = Instance.new("ScreenGui", playerGui)
+    sg.Name = "BuffedShootButtonGui"
+    sg.ResetOnSpawn = false
+
+    local btn = Instance.new("TextButton", sg)
+    btn.Size = UDim2.new(0, 110, 0, 50)
+    btn.Position = savedBuffedPosition
+    btn.BackgroundColor3 = Color3.fromRGB(150, 0, 255)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = "BUFFED SHOOT"
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 14
+    btn.Active = true
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 12)
+
+    local lockLabel = Instance.new("TextLabel", btn)
+    lockLabel.Size = UDim2.new(0, 20, 0, 20)
+    lockLabel.Position = UDim2.new(1, -22, 0, 2)
+    lockLabel.BackgroundTransparency = 1
+    lockLabel.Text = "🔒"
+    lockLabel.TextSize = 14
+    lockLabel.Visible = buffedLockedPermanently
+
+    local locked = buffedLockedPermanently
+    local dragging, dragStart, startPos = false, nil, nil
+    local lastClickTime = 0
+
+    btn:GetPropertyChangedSignal("Position"):Connect(function()
+        if sg.Parent and not locked then savedBuffedPosition = btn.Position end
+    end)
+
+    btn.InputBegan:Connect(function(i)
+        if not locked and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
+            dragging = true
+            dragStart = i.Position
+            startPos = btn.Position
+        end
+    end)
+
+    game:GetService("UserInputService").InputChanged:Connect(function(i)
+        if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local delta = i.Position - dragStart
+            btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            savedBuffedPosition = btn.Position
+        end
+    end)
+
+    btn.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        local currentTime = tick()
+        if currentTime - lastClickTime <= 1 then
+            if not locked then
+                locked = true
+                buffedLockedPermanently = true
+                lockLabel.Visible = true
+                dragging = false
+            end
+            lastClickTime = 0
+        else
+            lastClickTime = currentTime
+
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+            local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+            if not hrp or not humanoid then return end
+
+            local gun = (char and char:FindFirstChild("Gun")) or (backpack and backpack:FindFirstChild("Gun"))
+            if not gun then
+                btn.Text = "No gun!"
+                task.delay(1.5, function() if btn.Text == "No gun!" then btn.Text = "BUFFED SHOOT" end end)
+                return
+            end
+
+            -- Find Murderer
+            local murdererHrp = nil
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character then
+                    local pChar = plr.Character
+                    local pBackpack = plr:FindFirstChildOfClass("Backpack")
+                    local pHum = pChar:FindFirstChildOfClass("Humanoid")
+                    local pRoot = pChar:FindFirstChild("HumanoidRootPart")
+                    
+                    if pHum and pHum.Health > 0 and pRoot then
+                        local hasKnife = pChar:FindFirstChild("Knife") or (pBackpack and pBackpack:FindFirstChild("Knife"))
+                        if hasKnife then
+                            murdererHrp = pRoot
+                            break
+                        end
+                    end
+                end
+            end
+
+            if not murdererHrp then
+                btn.Text = "No Murd!"
+                task.delay(1.5, function() if btn.Text == "No Murd!" then btn.Text = "BUFFED SHOOT" end end)
+                return
+            end
+
+            -- Equip gun if in backpack
+            if backpack and backpack:FindFirstChild("Gun") then
+                for _, child in ipairs(char:GetChildren()) do if child:IsA("Tool") then child.Parent = backpack end end
+                backpack.Gun.Parent = char
+            end
+
+            -- Save original position to return back
+            local originalCFrame = hrp.CFrame
+            local oldPlatformStand = humanoid.PlatformStand
+            humanoid.PlatformStand = true
+
+            -- Teleport to murderer's head
+            hrp.CFrame = murdererHrp.CFrame + Vector3.new(0, 3.5, 0)
+            hrp.AssemblyLinearVelocity = Vector3.zero
+
+            -- Wait a tiny fraction of a second on their head
+            task.wait(0.05)
+
+            -- Shoot the murderer
+            local gunTool = char:FindFirstChild("Gun")
+            local shootRemote = gunTool and gunTool:FindFirstChild("Shoot")
+            if shootRemote then
+                local startPosCFrame = gunTool:FindFirstChild("Handle") and gunTool.Handle.CFrame or hrp.CFrame
+                local predictedMurdererPos = getAdvancedPredictedPosition(hrp, murdererHrp, 350)
+
+                local args = {
+                    CFrame.new(startPosCFrame.Position, predictedMurdererPos),
+                    murdererHrp.CFrame
+                }
+                pcall(function() shootRemote:FireServer(unpack(args)) end)
+            end
+
+            -- Teleport back to original position
+            hrp.CFrame = originalCFrame
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            humanoid.PlatformStand = oldPlatformStand
+        end
+    end)
+end
+
+-- --- ANTI-AFK & FARM LOGIC --- --
+
 LocalPlayer.Idled:Connect(function()
     if antiAfkEnabled then
         VirtualUser:Button2Down(Vector2.new(0, 0), Camera.CFrame)
         task.wait(1)
         VirtualUser:Button2Up(Vector2.new(0, 0), Camera.CFrame)
-        
-        Rayfield:Notify({ 
-            Title = "Anti-AFK Triggered", 
-            Content = "Prevented kick due to inactivity!", 
-            Duration = 3 
-        })
+        Rayfield:Notify({ Title = "Anti-AFK Triggered", Content = "Prevented kick due to inactivity!", Duration = 3 })
     end
 end)
 
--- Configurable Timer Loop (Based on Slider Value)
 task.spawn(function()
     while true do
         task.wait(antiAfkInterval)
@@ -57,9 +869,7 @@ task.spawn(function()
             pcall(function()
                 local character = LocalPlayer.Character
                 local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-                end
+                if humanoid then humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end
             end)
         end
     end
@@ -75,28 +885,21 @@ local function getCollectedCoins()
         end
     end
     
-    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if playerGui then
-        for _, gui in ipairs(playerGui:GetDescendants()) do
+    local guiContainer = LocalPlayer:FindFirstChild("PlayerGui")
+    if guiContainer then
+        for _, gui in ipairs(guiContainer:GetDescendants()) do
             if gui:IsA("TextLabel") and (string.lower(gui.Name):find("coin") or string.lower(gui.Text):find("/")) then
                 local currentCount = tonumber(string.match(gui.Text, "^(%d+)"))
-                if currentCount then
-                    return currentCount
-                end
+                if currentCount then return currentCount end
             end
         end
     end
-    
     return 0
 end
 
 local function isBlacklistedPosition(pos)
-    local blacklistedCenter = Vector3.new(-21, 242, 9095)
-    local distance = (Vector3.new(pos.X, pos.Y, pos.Z) - blacklistedCenter).Magnitude
-    if distance <= 15 then
-        return true
-    end
-    return false
+    local blacklistedCenter = Vector3.new(1, -66, -17)
+    return (Vector3.new(pos.X, pos.Y, pos.Z) - blacklistedCenter).Magnitude <= 25
 end
 
 local function getSelectedCoin()
@@ -105,15 +908,12 @@ local function getSelectedCoin()
     if not rootPart then return nil end
 
     local coinList = {}
-
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") and (obj.Name == "Coin" or obj.Name == "CoinVisual" or obj:FindFirstChild("TouchInterest")) then
             if obj.Parent and (obj.Parent.Name == "CoinContainer" or obj.Parent.Name == "Coins" or obj.Name == "Coin") then
                 if not isBlacklistedPosition(obj.Position) then
                     local dist = (rootPart.Position - obj.Position).Magnitude
-                    if dist <= MAX_DISTANCE then
-                        table.insert(coinList, obj)
-                    end
+                    if dist <= MAX_DISTANCE then table.insert(coinList, obj) end
                 end
             end
         end
@@ -132,7 +932,6 @@ local function getSelectedCoin()
             end
         end
         return nearestCoin
-
     elseif coinMode == "Farthest" then
         local farthestCoin = nil
         local longestDistance = -1
@@ -144,7 +943,6 @@ local function getSelectedCoin()
             end
         end
         return farthestCoin
-
     elseif coinMode == "Random" then
         return coinList[math.random(1, #coinList)]
     end
@@ -156,7 +954,6 @@ local function smoothTweenToPosition(targetCFrame, earlyDistance, targetCoinInst
     local character = LocalPlayer.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    
     if not rootPart or not humanoid then return false end
 
     local oldPlatformStand = humanoid.PlatformStand
@@ -176,23 +973,18 @@ local function smoothTweenToPosition(targetCFrame, earlyDistance, targetCoinInst
     while tick() - startTime < duration do
         if not autoFarmEnabled then break end
         if not LocalPlayer.Character or not rootPart.Parent then break end
-        
         if targetCoinInstance and (not targetCoinInstance.Parent or not targetCoinInstance:IsDescendantOf(workspace)) then
             humanoid.PlatformStand = oldPlatformStand
             return false
         end
 
         local currentDist = (rootPart.Position - targetCFrame.Position).Magnitude
-        if stopDistance > 0 and currentDist <= stopDistance then
-            break
-        end
+        if stopDistance > 0 and currentDist <= stopDistance then break end
 
         local alpha = math.clamp((tick() - startTime) / duration, 0, 1)
         rootPart.CFrame = startCFrame:Lerp(targetCFrame, alpha)
-        
-        rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-        rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-        
+        rootPart.AssemblyLinearVelocity = Vector3.zero
+        rootPart.AssemblyAngularVelocity = Vector3.zero
         RunService.Heartbeat:Wait()
     end
     
@@ -201,26 +993,17 @@ local function smoothTweenToPosition(targetCFrame, earlyDistance, targetCoinInst
         return false
     end
 
-    if rootPart and rootPart.Parent and stopDistance <= 0 then
-        rootPart.CFrame = targetCFrame
-    end
-    
-    if humanoid and humanoid.Parent then
-        humanoid.PlatformStand = oldPlatformStand
-    end
+    if rootPart and rootPart.Parent and stopDistance <= 0 then rootPart.CFrame = targetCFrame end
+    if humanoid and humanoid.Parent then humanoid.PlatformStand = oldPlatformStand end
 
     return true
 end
 
 local function getWeapon(weaponName)
     local character = LocalPlayer.Character
-    if character and character:FindFirstChild(weaponName) then
-        return character:FindFirstChild(weaponName)
-    end
+    if character and character:FindFirstChild(weaponName) then return character:FindFirstChild(weaponName) end
     local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
-    if backpack and backpack:FindFirstChild(weaponName) then
-        return backpack:FindFirstChild(weaponName)
-    end
+    if backpack and backpack:FindFirstChild(weaponName) then return backpack:FindFirstChild(weaponName) end
     return nil
 end
 
@@ -257,27 +1040,19 @@ local function handleStuckCombat()
     end
 
     if knife then
-        Rayfield:Notify({ Title = "Stuck Combat", Content = "Equipping Knife and killing EVERYONE in the server...", Duration = 3 })
+        Rayfield:Notify({ Title = "Stuck Combat", Content = "Equipping Knife and eliminating players...", Duration = 3 })
         humanoid:EquipTool(knife)
         
-        local targets = {}
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
                 local pHum = player.Character:FindFirstChildOfClass("Humanoid")
-                if pHum and pHum.Health > 0 then
-                    table.insert(targets, player)
+                local targetRoot = player.Character:FindFirstChild("HumanoidRootPart")
+                if pHum and pHum.Health > 0 and targetRoot then
+                    while autoFarmEnabled and targetRoot and pHum and pHum.Health > 0 and humanoid.Health > 0 do
+                        targetRoot.CFrame = rootPart.CFrame * CFrame.new(0, 0, -2)
+                        task.wait(0.15)
+                    end
                 end
-            end
-        end
-
-        for _, targetPlayer in ipairs(targets) do
-            local targetChar = targetPlayer.Character
-            local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
-            local targetHum = targetChar and targetChar:FindFirstChild("Humanoid")
-
-            while autoFarmEnabled and targetRoot and targetHum and targetHum.Health > 0 and humanoid.Health > 0 do
-                targetRoot.CFrame = rootPart.CFrame * CFrame.new(0, 0, -2)
-                task.wait(0.15)
             end
         end
     end
@@ -285,7 +1060,7 @@ local function handleStuckCombat()
     isExecutingCombat = false
 end
 
--- Coin Farm Loop: Wacht streng tot er een geldige coin is voordat hij ergens heen gaat
+-- Coin Farm Loop
 task.spawn(function()
     while true do
         if autoFarmEnabled and not isExecutingCombat then
@@ -293,11 +1068,7 @@ task.spawn(function()
                 local currentCoins = getCollectedCoins()
                 if currentCoins >= 40 then
                     autoFarmEnabled = false
-                    Rayfield:Notify({ 
-                        Title = "Auto Farm Completed", 
-                        Content = "Reached 40 collected coins! Farm stopped automatically.", 
-                        Duration = 5 
-                    })
+                    Rayfield:Notify({ Title = "Auto Farm Completed", Content = "Reached 40 collected coins!", Duration = 5 })
                     return
                 end
 
@@ -316,32 +1087,30 @@ task.spawn(function()
                     if undergroundFarmEnabled then
                         local belowCoinCFrame = coin.CFrame * CFrame.new(0, -5, 0)
                         local reached = smoothTweenToPosition(belowCoinCFrame, 1.5, coin)
-                        if not reached or not coin or not coin.Parent or not coin:IsDescendantOf(workspace) then return end
+                        if not reached or not coin or not coin.Parent then return end
                         
                         local char = LocalPlayer.Character
                         local root = char and char:FindFirstChild("HumanoidRootPart")
-                        if not coin or not coin.Parent or not coin:IsDescendantOf(workspace) or not root then return end
+                        if not root then return end
 
                         root.CFrame = belowCoinCFrame
                         task.wait(0.05)
 
-                        if coin and coin.Parent and coin:IsDescendantOf(workspace) then
-                            reached = smoothTweenToPosition(coin.CFrame, 1.5, coin)
-                            if not reached or not coin or not coin.Parent or not coin:IsDescendantOf(workspace) then return end
-                            
-                            root.CFrame = coin.CFrame
-                            task.wait(0.05)
+                        reached = smoothTweenToPosition(coin.CFrame, 1.5, coin)
+                        if not reached or not coin or not coin.Parent then return end
+                        
+                        root.CFrame = coin.CFrame
+                        task.wait(0.05)
 
-                            smoothTweenToPosition(belowCoinCFrame, 1.5, nil)
-                            root.CFrame = belowCoinCFrame
-                        end
+                        smoothTweenToPosition(belowCoinCFrame, 1.5, nil)
+                        root.CFrame = belowCoinCFrame
                     else
                         local reached = smoothTweenToPosition(coin.CFrame, 1.5, coin)
-                        if not reached or not coin or not coin.Parent or not coin:IsDescendantOf(workspace) then return end
+                        if not reached or not coin or not coin.Parent then return end
                         
                         local char = LocalPlayer.Character
                         local root = char and char:FindFirstChild("HumanoidRootPart")
-                        if not coin or not coin.Parent or not coin:IsDescendantOf(workspace) or not root then return end
+                        if not root then return end
 
                         root.CFrame = coin.CFrame
                         task.wait(0.1)
@@ -365,120 +1134,937 @@ task.spawn(function()
     end
 end)
 
--- Coin Farm Tab UI
-Tab:CreateToggle({
-   Name = "Auto Coin Farm (Stops at 40)",
-   CurrentValue = false,
-   Flag = "AutoCoinFarm",
-   Callback = function(Value)
-      autoFarmEnabled = Value
-      if Value then
-         Rayfield:Notify({ Title = "Auto Farm", Content = "Coin farm started safely!", Duration = 3 })
-      else
-         Rayfield:Notify({ Title = "Auto Farm", Content = "Coin farm stopped.", Duration = 3 })
-      end
-   end,
+-- --- ANTI-FLING & FLING LOGIC --- --
+
+local function toggleAntiFling(state)
+    antiFlingEnabled = state
+    if antiFlingEnabled then
+        if not antiFlingConnection then
+            antiFlingConnection = RunService.Stepped:Connect(function()
+                if not antiFlingEnabled then return end
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character then
+                        for _, targetPart in ipairs(player.Character:GetDescendants()) do
+                            if targetPart:IsA("BasePart") then targetPart.CanCollide = false end
+                        end
+                    end
+                end
+            end)
+        end
+    else
+        if antiFlingConnection then
+            antiFlingConnection:Disconnect()
+            antiFlingConnection = nil
+        end
+    end
+end
+
+local function executeFlingUntilDead(targetChar)
+    if isFlinging then return end
+    local localChar = LocalPlayer.Character
+    if not localChar then return end
+    
+    local localRoot = getRoot(localChar)
+    local targetRoot = getRoot(targetChar)
+    local humanoid = localChar:FindFirstChild("Humanoid")
+    local targetHumanoid = targetChar:FindFirstChild("Humanoid")
+    if not localRoot or not targetRoot or not humanoid or not targetHumanoid then return end
+    
+    isFlinging = true
+    local previousAntiFlingState = antiFlingEnabled
+    if previousAntiFlingState then toggleAntiFling(false) end
+    
+    local startCFrame = localRoot.CFrame
+    humanoid.PlatformStand = true
+    
+    for _, part in ipairs(localChar:GetChildren()) do
+        if part:IsA("BasePart") then part.CanCollide = (part == localRoot) end
+    end
+    
+    local bAV = Instance.new("BodyAngularVelocity")
+    bAV.Name = "FlingForce"
+    bAV.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    bAV.AngularVelocity = Vector3.new(99999, 99999, 99999)
+    bAV.Parent = localRoot
+
+    local bV = Instance.new("BodyVelocity")
+    bV.Name = "FlingMove"
+    bV.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    bV.Velocity = Vector3.zero
+    bV.Parent = localRoot
+    
+    task.spawn(function()
+        local connection
+        connection = RunService.Heartbeat:Connect(function()
+            if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("Humanoid") or LocalPlayer.Character.Humanoid.Health <= 0 then
+                connection:Disconnect()
+                return
+            end
+            
+            local freshTargetRoot = getRoot(targetChar)
+            local freshTargetHumanoid = targetChar:FindFirstChild("Humanoid")
+            if not freshTargetRoot or not freshTargetHumanoid or freshTargetHumanoid.Health <= 0 or not targetChar:IsDescendantOf(workspace) then
+                connection:Disconnect()
+                return
+            end
+            
+            local targetCFrame = freshTargetRoot.CFrame
+            local offset = (tick() % 0.4 < 0.2) and (targetCFrame.LookVector * 2.5) or (-targetCFrame.LookVector * 2.5)
+            local predictedPosition = freshTargetRoot.Position + offset + Vector3.new(0, 0.2, 0)
+            
+            localRoot.CFrame = CFrame.new(predictedPosition) * CFrame.Angles(math.rad(math.random(-180, 180)), math.rad(math.random(-180, 180)), math.rad(math.random(-180, 180)))
+            localRoot.Velocity = Vector3.new(35000, 35000, 35000)
+            localRoot.RotVelocity = Vector3.new(35000, 35000, 35000)
+        end)
+        
+        repeat task.wait(0.05) until not connection.Connected
+        
+        if bAV then bAV:Destroy() end
+        if bV then bV:Destroy() end
+        
+        if localRoot then
+            localRoot.Velocity = Vector3.zero
+            localRoot.RotVelocity = Vector3.zero
+            localRoot.CFrame = startCFrame
+        end
+        
+        task.wait(0.05)
+        for _, part in ipairs(localChar:GetChildren()) do
+            if part:IsA("BasePart") then part.CanCollide = true end
+        end
+        
+        if humanoid then
+            humanoid.PlatformStand = false
+            humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+        
+        if previousAntiFlingState then toggleAntiFling(true) end
+        isFlinging = false
+        Rayfield:Notify({ Title = "Target Eliminated", Content = "Target successfully flung!", Duration = 3 })
+    end)
+end
+
+-- --- PERSISTENT SERVER DATA & COMPREHENSIVE ROLE ASSIGNMENT FIX --- --
+
+local persistentRoles = {}
+
+pcall(function()
+    for _, remoteName in ipairs({"SetRoles", "RoleSelection", "AssignRole", "Roles"}) do
+        local remote = ReplicatedStorage:FindFirstChild(remoteName, true)
+        if remote and remote:IsA("RemoteEvent") then
+            remote.OnClientEvent:Connect(function(...)
+                local args = {...}
+                for _, arg in ipairs(args) do
+                    if type(arg) == "table" then
+                        for k, v in pairs(arg) do
+                            local targetPlr = nil
+                            if typeof(k) == "Instance" and k:IsA("Player") then
+                                targetPlr = k
+                            elseif type(k) == "string" then
+                                targetPlr = Players:FindFirstChild(k)
+                            elseif type(k) == "number" then
+                                targetPlr = Players:GetPlayerByUserId(k)
+                            end
+                            
+                            if targetPlr and targetPlr ~= LocalPlayer then
+                                local roleVal = type(v) == "table" and (v.Role or v.RoleName or v.KRole) or tostring(v)
+                                local idStr = tostring(targetPlr.UserId)
+                                local rStr = string.lower(tostring(roleVal))
+                                if rStr:find("murd") or rStr:find("assassin") then
+                                    persistentRoles[idStr] = "Murderer"
+                                elseif rStr:find("sheriff") or rStr:find("hero") then
+                                    persistentRoles[idStr] = "Sheriff"
+                                elseif rStr:find("innocent") then
+                                    persistentRoles[idStr] = "Innocent"
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+reloadESP = function()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local char = plr.Character
+            local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            
+            if root and humanoid and humanoid.Health > 0 then
+                local userIdStr = tostring(plr.UserId)
+                local color = Color3.fromRGB(0, 255, 0)
+                local roleText = "Innocent"
+
+                local dataEntry = playerData[userIdStr] or playerData[plr.Name]
+                if dataEntry then
+                    local role = dataEntry.Role or dataEntry.RoleName or dataEntry.KRole
+                    if role then
+                        local rStr = string.lower(tostring(role))
+                        if rStr:find("murd") or rStr:find("assassin") then
+                            persistentRoles[userIdStr] = "Murderer"
+                        elseif rStr:find("sheriff") or rStr:find("hero") then
+                            persistentRoles[userIdStr] = "Sheriff"
+                        elseif rStr:find("innocent") then
+                            persistentRoles[userIdStr] = "Innocent"
+                        end
+                    end
+                end
+
+                local bp = plr:FindFirstChildOfClass("Backpack")
+                local hasGun = char:FindFirstChild("Gun") or (bp and bp:FindFirstChild("Gun"))
+                local hasKnife = char:FindFirstChild("Knife") or (bp and bp:FindFirstChild("Knife"))
+                
+                if hasGun then
+                    persistentRoles[userIdStr] = "Sheriff"
+                elseif hasKnife then
+                    persistentRoles[userIdStr] = "Murderer"
+                end
+
+                local currentCachedRole = persistentRoles[userIdStr]
+                if currentCachedRole == "Murderer" then
+                    color = Color3.fromRGB(255, 0, 0)
+                    roleText = "Murderer"
+                elseif currentCachedRole == "Sheriff" then
+                    color = Color3.fromRGB(0, 100, 255)
+                    roleText = "Sheriff"
+                else
+                    persistentRoles[userIdStr] = "Innocent"
+                    color = Color3.fromRGB(0, 255, 0)
+                    roleText = "Innocent"
+                end
+                
+                local hl = char:FindFirstChild("BombHubESP")
+                if not hl then
+                    hl = Instance.new("Highlight")
+                    hl.Name = "BombHubESP"
+                    hl.Adornee = char
+                    hl.Parent = char
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                end
+                hl.FillColor = color
+                hl.OutlineColor = color
+                hl.FillTransparency = 0.5
+
+                local textGui = char:FindFirstChild("RoleTextESP")
+                if not textGui then
+                    textGui = Instance.new("BillboardGui")
+                    textGui.Name = "RoleTextESP"
+                    textGui.Size = UDim2.new(0, 160, 0, 60)
+                    textGui.StudsOffset = Vector3.new(0, 3, 0)
+                    textGui.AlwaysOnTop = true
+                    textGui.Parent = char
+
+                    local label = Instance.new("TextLabel", textGui)
+                    label.Name = "Title"
+                    label.Size = UDim2.new(1, 0, 1, 0)
+                    label.BackgroundTransparency = 1
+                    label.TextScaled = true
+                    label.Font = Enum.Font.SourceSansBold
+                    label.TextStrokeTransparency = 0
+                end
+
+                local lbl = textGui:FindFirstChild("Title")
+                if lbl then
+                    lbl.Text = plr.Name .. "\n[" .. roleText .. "]"
+                    lbl.TextColor3 = color
+                end
+            else
+                if char:FindFirstChild("BombHubESP") then char.BombHubESP:Destroy() end
+                if char:FindFirstChild("RoleTextESP") then char.RoleTextESP:Destroy() end
+            end
+        else
+            if plr.Character then
+                if plr.Character:FindFirstChild("BombHubESP") then plr.Character.BombHubESP:Destroy() end
+                if plr.Character:FindFirstChild("RoleTextESP") then plr.Character.RoleTextESP:Destroy() end
+            end
+        end
+    end
+end
+
+pcall(function()
+    ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("PlayerDataChanged", 5).OnClientEvent:Connect(function(data)
+        if type(data) == "table" then
+            for k, v in pairs(data) do
+                local targetPlr = Players:GetPlayerByUserId(tonumber(k) or 0) or Players:FindFirstChild(tostring(k))
+                if targetPlr and targetPlr ~= LocalPlayer then
+                    playerData[k] = v
+                    local role = v.Role or v.RoleName or v.KRole
+                    if role then
+                        local rStr = string.lower(tostring(role))
+                        if rStr:find("murd") or rStr:find("assassin") then
+                            persistentRoles[tostring(k)] = "Murderer"
+                        elseif rStr:find("sheriff") or rStr:find("hero") then
+                            persistentRoles[tostring(k)] = "Sheriff"
+                        elseif rStr:find("innocent") then
+                            persistentRoles[tostring(k)] = "Innocent"
+                        end
+                    end
+                end
+            end
+        end
+        if playerESP then
+            reloadESP()
+        end
+    end)
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+    persistentRoles[tostring(plr.UserId)] = nil
+    playerData[tostring(plr.UserId)] = nil
+end)
+
+-- --- UI SETUP --- --
+
+CombatTab:CreateToggle({
+    Name = "Gold Bomb Jump",
+    CurrentValue = false,
+    Flag = "GoldBombToggle",
+    Callback = function(Value)
+        goldJumpActive = Value
+        if Value then createGoldBombButton() else if playerGui:FindFirstChild("GoldBombJumpGui") then playerGui.GoldBombJumpGui:Destroy() end end
+    end,
 })
 
-Tab:CreateToggle({
-   Name = "underground coinfarm modus",
-   CurrentValue = false,
-   Flag = "UndergroundCoinfarmModusToggle",
-   Callback = function(Value)
-      undergroundFarmEnabled = Value
-      if Value then
-         Rayfield:Notify({ Title = "Underground Modus", Content = "Underground coinfarm modus enabled (5 studs deep)!", Duration = 3 })
-      else
-         Rayfield:Notify({ Title = "Underground Modus", Content = "Underground coinfarm modus disabled (normal flight).", Duration = 3 })
-      end
-   end,
+CombatTab:CreateToggle({
+    Name = "Fake Bomb Jump",
+    CurrentValue = false,
+    Flag = "FakeBombToggle",
+    Callback = function(Value)
+        fakeJumpActive = Value
+        if Value then createFakeBombButton() else if playerGui:FindFirstChild("FakeBombJumpGui") then playerGui.FakeBombJumpGui:Destroy() end end
+    end,
 })
 
-Tab:CreateToggle({
-   Name = "Auto Reset when Stuck",
-   CurrentValue = false,
-   Flag = "AutoResetStuck",
-   Callback = function(Value)
-      autoResetEnabled = Value
-      if Value then
-         Rayfield:Notify({ Title = "Auto Reset", Content = "Auto reset on stuck enabled!", Duration = 3 })
-      else
-         Rayfield:Notify({ Title = "Auto Reset", Content = "Auto reset disabled.", Duration = 3 })
-      end
-   end,
+CombatTab:CreateToggle({
+    Name = "Pool Jump",
+    CurrentValue = false,
+    Flag = "PoolJumpToggle",
+    Callback = function(Value)
+        poolJumpActive = Value
+        if Value then createPoolJumpButton() else if playerGui:FindFirstChild("PoolJumpGui") then playerGui.PoolJumpGui:Destroy() end end
+    end,
 })
 
-Tab:CreateSlider({
-   Name = "Stuck Attempts Before Action",
-   Range = {4, 20},
-   Increment = 1,
-   CurrentValue = 10,
-   Suffix = "times",
-   Flag = "MaxAttemptsSlider",
-   Callback = function(Value)
-      maxAttemptsLimit = Value
-   end,
+CombatTab:CreateSlider({
+    Name = "Pool Jump Height",
+    Range = {50, 400},
+    Increment = 10,
+    CurrentValue = 100,
+    Suffix = "studs",
+    Flag = "PoolJumpHeightSlider",
+    Callback = function(Value)
+        poolJumpHeight = Value
+    end,
 })
 
-Tab:CreateDropdown({
-   Name = "Coin Mode",
-   Options = {"Closest", "Random", "Farthest"},
-   CurrentOption = "Closest",
-   Flag = "CoinModeDropdown",
-   Callback = function(Option)
-      local success, err = pcall(function()
-         if type(Option) == "table" then
-            coinMode = Option[1] or "Closest"
-         else
-            coinMode = tostring(Option)
-         end
-      end)
-      
-      if not success then
-         coinMode = "Closest"
-      end
-
-      Rayfield:Notify({ Title = "Coin Mode", Content = "Mode changed to: " .. tostring(coinMode), Duration = 2 })
-   end,
+CombatTab:CreateToggle({
+    Name = "Auto Gun / Knife Button",
+    CurrentValue = false,
+    Flag = "GunToggle",
+    Callback = function(Value)
+        gunActive = Value
+        if Value then createGunButton() else if playerGui:FindFirstChild("GunButtonGui") then playerGui.GunButtonGui:Destroy() end end
+    end,
 })
 
-Tab:CreateSlider({
-   Name = "Farm Speed (Tween)",
-   Range = {10, 30},
-   Increment = 1,
-   CurrentValue = 25,
-   Suffix = "studs/s",
-   Flag = "FarmSpeed",
-   Callback = function(Value)
-      tweenSpeed = Value
-   end,
+CombatTab:CreateToggle({
+    Name = "buffed shoot murderer",
+    CurrentValue = false,
+    Flag = "BuffedShootToggle",
+    Callback = function(Value)
+        buffedActive = Value
+        if Value then createBuffedShootButton() else if playerGui:FindFirstChild("BuffedShootButtonGui") then playerGui.BuffedShootButtonGui:Destroy() end end
+    end,
 })
 
--- Misc Tab UI (Anti-AFK)
+CombatTab:CreateToggle({
+    Name = "ESP (Server Roles + Names)",
+    CurrentValue = false,
+    Flag = "Esptoggle",
+    Callback = function(Value)
+        espActive = Value
+        playerESP = Value
+    end,
+})
+
+CombatTab:CreateToggle({
+    Name = "Auto Pickup Gun (Teleportless FireTouch)",
+    CurrentValue = false,
+    Flag = "AutoPickupGunToggle",
+    Callback = function(Value)
+        autoPickupGunActive = Value
+        Rayfield:Notify({ Title = "Auto Pickup Gun", Content = Value and "Teleportless gun pickup enabled!" or "Auto pickup disabled.", Duration = 3 })
+    end,
+})
+
+FarmTab:CreateToggle({
+    Name = "Auto Coin Farm (Stops at 40)",
+    CurrentValue = false,
+    Flag = "AutoCoinFarm",
+    Callback = function(Value)
+        autoFarmEnabled = Value
+        Rayfield:Notify({ Title = "Auto Farm", Content = Value and "Coin farm started!" or "Coin farm stopped.", Duration = 3 })
+    end,
+})
+
+FarmTab:CreateToggle({
+    Name = "Underground Coin Farm Modus",
+    CurrentValue = false,
+    Flag = "UndergroundCoinfarmModusToggle",
+    Callback = function(Value)
+        undergroundFarmEnabled = Value
+    end,
+})
+
+FarmTab:CreateToggle({
+    Name = "Auto Reset when Stuck",
+    CurrentValue = false,
+    Flag = "AutoResetStuck",
+    Callback = function(Value)
+        autoResetEnabled = Value
+    end,
+})
+
+FarmTab:CreateSlider({
+    Name = "Stuck Attempts Before Action",
+    Range = {4, 20},
+    Increment = 1,
+    CurrentValue = 10,
+    Suffix = "times",
+    Flag = "MaxAttemptsSlider",
+    Callback = function(Value)
+        maxAttemptsLimit = Value
+    end,
+})
+
+FarmTab:CreateDropdown({
+    Name = "Coin Mode",
+    Options = {"Closest", "Random", "Farthest"},
+    CurrentOption = "Closest",
+    Flag = "CoinModeDropdown",
+    Callback = function(Option)
+        coinMode = type(Option) == "table" and (Option[1] or "Closest") or tostring(Option)
+    end,
+})
+
+FarmTab:CreateSlider({
+    Name = "Farm Speed (Tween)",
+    Range = {10, 30},
+    Increment = 1,
+    CurrentValue = 25,
+    Suffix = "studs/s",
+    Flag = "FarmSpeed",
+    Callback = function(Value)
+        tweenSpeed = Value
+    end,
+})
+
+-- --- KILL TAB SETUP --- --
+
+KillTab:CreateButton({
+    Name = "Kill All for Murd",
+    Callback = function()
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            Rayfield:Notify({ Title = "Error", Content = "Character not found!", Duration = 3 })
+            return
+        end
+
+        local knife = getWeapon("Knife")
+        if not knife then
+            Rayfield:Notify({ Title = "Error", Content = "You need to be Murderer (have a knife) to use this!", Duration = 3 })
+            return
+        end
+
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then humanoid:EquipTool(knife) end
+
+        Rayfield:Notify({ Title = "Kill All", Content = "Bringing nearby players to you until they die...", Duration = 3 })
+
+        task.spawn(function()
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                    local pRoot = player.Character:FindFirstChild("HumanoidRootPart")
+                    local pHum = player.Character:FindFirstChildOfClass("Humanoid")
+                    
+                    if pRoot and pHum and pHum.Health > 0 then
+                        local dist = (hrp.Position - pRoot.Position).Magnitude
+                        if dist <= 1500 then
+                            while player.Character and pRoot and pHum and pHum.Health > 0 and humanoid and humanoid.Health > 0 do
+                                pRoot.CFrame = hrp.CFrame * CFrame.new(0, 0, -2)
+                                pRoot.AssemblyLinearVelocity = Vector3.zero
+                                task.wait(0.1)
+                            end
+                        end
+                    end
+                end
+            end
+            Rayfield:Notify({ Title = "Kill All Finished", Content = "All valid players brought and handled!", Duration = 3 })
+        end)
+    end,
+})
+
+KillTab:CreateButton({
+    Name = "Kill Murderer",
+    Callback = function()
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            Rayfield:Notify({ Title = "Error", Content = "Character not found!", Duration = 3 })
+            return
+        end
+
+        local murderer = nil
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local pChar = player.Character
+                local pBackpack = player:FindFirstChildOfClass("Backpack")
+                local pRoot = pChar and pChar:FindFirstChild("HumanoidRootPart")
+                local pHum = pChar and pChar:FindFirstChildOfClass("Humanoid")
+                
+                if pChar and pHum and pHum.Health > 0 and pRoot then
+                    local hasKnife = pChar:FindFirstChild("Knife") or (pBackpack and pBackpack:FindFirstChild("Knife"))
+                    if hasKnife then
+                        murderer = player
+                        break
+                    end
+                end
+            end
+        end
+
+        if murderer and murderer.Character and murderer.Character:FindFirstChild("HumanoidRootPart") then
+            local mRoot = murderer.Character.HumanoidRootPart
+            local mHum = murderer.Character:FindFirstChildOfClass("Humanoid")
+            
+            Rayfield:Notify({ Title = "Murderer Targeted", Content = "Bringing " .. murderer.Name .. " to you until they die...", Duration = 3 })
+            
+            task.spawn(function()
+                while murderer.Character and mRoot and mHum and mHum.Health > 0 do
+                    mRoot.CFrame = hrp.CFrame * CFrame.new(0, 0, -2)
+                    mRoot.AssemblyLinearVelocity = Vector3.zero
+                    task.wait(0.1)
+                end
+                Rayfield:Notify({ Title = "Success", Content = "Murderer is dead!", Duration = 3 })
+            end)
+        else
+            Rayfield:Notify({ Title = "Error", Content = "No Murderer found in the game!", Duration = 3 })
+        end
+    end,
+})
+
+FlingTab:CreateToggle({
+    Name = "Enable Anti-Fling",
+    CurrentValue = false,
+    Flag = "AntiFlingToggle",
+    Callback = function(Value)
+        toggleAntiFling(Value)
+    end,
+})
+
+FlingTab:CreateToggle({
+    Name = "Auto Fling on Touch (Proximity)",
+    CurrentValue = false,
+    Flag = "AutoTouchFlingToggle",
+    Callback = function(Value)
+        autoTouchFlingEnabled = Value
+        if autoTouchFlingEnabled then
+            if not autoTouchFlingConnection then
+                autoTouchFlingConnection = RunService.Stepped:Connect(function()
+                    if not autoTouchFlingEnabled or isFlinging then return end
+                    local char = LocalPlayer.Character
+                    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+                    local hrp = char.HumanoidRootPart
+                    
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                            local targetHrp = player.Character.HumanoidRootPart
+                            local dist = (hrp.Position - targetHrp.Position).Magnitude
+                            if dist < 4 then
+                                executeFlingUntilDead(player.Character)
+                                break
+                            end
+                        end
+                    end
+                end)
+            end
+        else
+            if autoTouchFlingConnection then
+                autoTouchFlingConnection:Disconnect()
+                autoTouchFlingConnection = nil
+            end
+        end
+    end,
+})
+
+FlingTab:CreateInput({
+    Name = "Target Player Name",
+    PlaceholderText = "Enter full or partial name",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(text)
+        targetPlayerName = text
+    end,
+})
+
+FlingTab:CreateButton({
+    Name = "Run TouchFling (Dynamic Tracking)",
+    Callback = function()
+        local target = nil
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and string.sub(string.lower(player.Name), 1, string.len(targetPlayerName)) == string.lower(targetPlayerName) then
+                target = player
+                break
+            end
+        end
+        if target and target.Character then
+            executeFlingUntilDead(target.Character)
+        else
+            Rayfield:Notify({ Title = "Error", Content = "Player not found!", Duration = 3 })
+        end
+    end,
+})
+
+FlingTab:CreateButton({
+    Name = "Fling Murderer Safely",
+    Callback = function()
+        local murderer = nil
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local char = player.Character
+                local backpack = player:FindFirstChild("Backpack")
+                local hasKnife = false
+                if char then
+                    for _, item in ipairs(char:GetChildren()) do
+                        if item:IsA("Tool") and string.lower(item.Name):find("knife") then hasKnife = true break end
+                    end
+                end
+                if not hasKnife and backpack then
+                    for _, item in ipairs(backpack:GetChildren()) do
+                        if item:IsA("Tool") and string.lower(item.Name):find("knife") then hasKnife = true break end
+                    end
+                end
+                if hasKnife then murderer = player break end
+            end
+        end
+        if murderer and murderer.Character then
+            Rayfield:Notify({ Title = "Murderer Found!", Content = "Executing fling on " .. murderer.Name, Duration = 3 })
+            executeFlingUntilDead(murderer.Character)
+        else
+            Rayfield:Notify({ Title = "Error", Content = "No Murderer found with a knife!", Duration = 3 })
+        end
+    end,
+})
+
+FlingTab:CreateButton({
+    Name = "Fling Sheriff Safely",
+    Callback = function()
+        local sheriff = nil
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local char = player.Character
+                local backpack = player:FindFirstChild("Backpack")
+                local hasGun = false
+                if char then
+                    for _, item in ipairs(char:GetChildren()) do
+                        if item:IsA("Tool") and string.lower(item.Name):find("gun") then hasGun = true break end
+                    end
+                end
+                if not hasGun and backpack then
+                    for _, item in ipairs(backpack:GetChildren()) do
+                        if item:IsA("Tool") and string.lower(item.Name):find("gun") then hasGun = true break end
+                    end
+                end
+                if hasGun then sheriff = player break end
+            end
+        end
+        if sheriff and sheriff.Character then
+            Rayfield:Notify({ Title = "Sheriff Found!", Content = "Executing fling on " .. sheriff.Name, Duration = 3 })
+            executeFlingUntilDead(sheriff.Character)
+        else
+            Rayfield:Notify({ Title = "Error", Content = "No Sheriff found with a gun!", Duration = 3 })
+        end
+    end,
+})
+
+-- --- MISC TAB: EXTERNAL FLY & OTHERS --- --
+
+MiscTab:CreateButton({
+    Name = "Load External Fly Script",
+    Callback = function()
+        pcall(function()
+            loadstring(game:HttpGet("https://pastefy.app/IHIgGN9b/raw"))()
+            Rayfield:Notify({ Title = "Fly Loaded", Content = "External fly script loaded successfully!", Duration = 3 })
+        end)
+    end,
+})
+
 MiscTab:CreateToggle({
-   Name = "Anti-AFK Toggle",
-   CurrentValue = false,
-   Flag = "AntiAfkToggle",
-   Callback = function(Value)
-      antiAfkEnabled = Value
-      if Value then
-         Rayfield:Notify({ Title = "Anti-AFK", Content = "Anti-AFK activated successfully!", Duration = 3 })
-      else
-         Rayfield:Notify({ Title = "Anti-AFK", Content = "Anti-AFK deactivated.", Duration = 3 })
-      end
-   end,
+    Name = "Infinite Jump",
+    CurrentValue = false,
+    Flag = "InfiniteJumpToggle",
+    Callback = function(Value)
+        infiniteJumpEnabled = Value
+    end,
+})
+
+UserInputService.JumpRequest:Connect(function()
+    if infiniteJumpEnabled then
+        local character = LocalPlayer.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
+
+MiscTab:CreateToggle({
+    Name = "Noclip",
+    CurrentValue = false,
+    Flag = "NoclipToggle",
+    Callback = function(Value)
+        noclipEnabled = Value
+        if noclipEnabled then
+            noclipConnection = RunService.Stepped:Connect(function()
+                if LocalPlayer.Character then
+                    for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = false
+                        end
+                    end
+                end
+            end)
+        else
+            if noclipConnection then
+                noclipConnection:Disconnect()
+                noclipConnection = nil
+            end
+        end
+    end,
 })
 
 MiscTab:CreateSlider({
-   Name = "Anti-AFK Interval",
-   Range = {15, 60},
-   Increment = 1,
-   CurrentValue = 15,
-   Suffix = "s",
-   Flag = "AntiAfkIntervalSlider",
-   Callback = function(Value)
-      antiAfkInterval = Value
-   end,
+    Name = "WalkSpeed",
+    Range = {16, 250},
+    Increment = 1,
+    CurrentValue = 16,
+    Flag = "WalkSpeedSlider",
+    Callback = function(Value)
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.WalkSpeed = Value
+        end
+    end,
 })
+
+MiscTab:CreateSlider({
+    Name = "JumpPower",
+    Range = {50, 500},
+    Increment = 5,
+    CurrentValue = 50,
+    Flag = "JumpPowerSlider",
+    Callback = function(Value)
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.UseJumpPower = true
+            LocalPlayer.Character.Humanoid.JumpPower = Value
+        end
+    end,
+})
+
+MiscTab:CreateToggle({
+    Name = "Anti-AFK Toggle",
+    CurrentValue = false,
+    Flag = "AntiAfkToggle",
+    Callback = function(Value)
+        antiAfkEnabled = Value
+        Rayfield:Notify({ Title = "Anti-AFK", Content = Value and "Anti-AFK activated!" or "Anti-AFK deactivated.", Duration = 3 })
+    end,
+})
+
+MiscTab:CreateSlider({
+    Name = "Anti-AFK Interval",
+    Range = {15, 60},
+    Increment = 1,
+    CurrentValue = 15,
+    Suffix = "s",
+    Flag = "AntiAfkIntervalSlider",
+    Callback = function(Value)
+        antiAfkInterval = Value
+    end,
+})
+
+MiscTab:CreateButton({
+    Name = "Rejoin Server",
+    Callback = function()
+        game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+    end,
+})
+
+-- --- ADMIN TAB SETUP --- --
+
+local availableMaps = {"mil", "barn", "ski", "skilodge", "workshop", "spaceship", "farmhouse", "manor", "station", "mineshaft", "vampire", "pier", "LogCabin", "christmasitaly", "factory", "Yacht", "Icecastle", "beachresort"}
+local selectedMapOption = "mil"
+
+AdminTab:CreateDropdown({
+    Name = "Select Map",
+    Options = availableMaps,
+    CurrentOption = "mil",
+    Flag = "SetMapDropdown",
+    Callback = function(Option)
+        selectedMapOption = type(Option) == "table" and (Option[1] or "mil") or tostring(Option)
+    end,
+})
+
+AdminTab:CreateButton({
+    Name = "Set Map (Selected)",
+    Callback = function()
+        sendChatMessage("/map " .. selectedMapOption)
+        Rayfield:Notify({ Title = "Admin Command", Content = "Sent /map " .. selectedMapOption .. " to chat!", Duration = 3 })
+    end,
+})
+
+local function getPlayerNames()
+    local list = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        table.insert(list, plr.Name)
+    end
+    if #list == 0 then
+        table.insert(list, LocalPlayer.Name)
+    end
+    return list
+end
+
+local selectedSheriffPlayer = LocalPlayer.Name
+local sheriffDropdown = AdminTab:CreateDropdown({
+    Name = "Select Sheriff Player",
+    Options = getPlayerNames(),
+    CurrentOption = LocalPlayer.Name,
+    Flag = "SetSheriffDropdown",
+    Callback = function(Option)
+        selectedSheriffPlayer = type(Option) == "table" and (Option[1] or LocalPlayer.Name) or tostring(Option)
+    end,
+})
+
+AdminTab:CreateButton({
+    Name = "Set Sheriff (Selected Player / Self)",
+    Callback = function()
+        if selectedSheriffPlayer == LocalPlayer.Name or selectedSheriffPlayer == "" then
+            sendChatMessage("/sheriff")
+            Rayfield:Notify({ Title = "Admin Command", Content = "Sent /sheriff for yourself!", Duration = 3 })
+        else
+            sendChatMessage("/sheriff " .. selectedSheriffPlayer)
+            Rayfield:Notify({ Title = "Admin Command", Content = "Sent /sheriff " .. selectedSheriffPlayer .. " to chat!", Duration = 3 })
+        end
+    end,
+})
+
+local selectedMurdererPlayer = LocalPlayer.Name
+local murdererDropdown = AdminTab:CreateDropdown({
+    Name = "Select Murderer Player",
+    Options = getPlayerNames(),
+    CurrentOption = LocalPlayer.Name,
+    Flag = "SetMurdererDropdown",
+    Callback = function(Option)
+        selectedMurdererPlayer = type(Option) == "table" and (Option[1] or LocalPlayer.Name) or tostring(Option)
+    end,
+})
+
+AdminTab:CreateButton({
+    Name = "Set Murderer (Selected Player / Self)",
+    Callback = function()
+        if selectedMurdererPlayer == LocalPlayer.Name or selectedMurdererPlayer == "" then
+            sendChatMessage("/murd")
+            Rayfield:Notify({ Title = "Admin Command", Content = "Sent /murd for yourself!", Duration = 3 })
+        else
+            sendChatMessage("/murd " .. selectedMurdererPlayer)
+            Rayfield:Notify({ Title = "Admin Command", Content = "Sent /murd " .. selectedMurdererPlayer .. " to chat!", Duration = 3 })
+        end
+    end,
+})
+
+Players.PlayerAdded:Connect(function()
+    local updatedNames = getPlayerNames()
+    sheriffDropdown:Refresh(updatedNames, true)
+    murdererDropdown:Refresh(updatedNames, true)
+end)
+
+Players.PlayerRemoving:Connect(function()
+    task.wait(0.1)
+    local updatedNames = getPlayerNames()
+    sheriffDropdown:Refresh(updatedNames, true)
+    murdererDropdown:Refresh(updatedNames, true)
+end)
+
+-- --- HIGH-FREQUENCY ESP & AUTO PICKUP GUN LOOP --- --
+RunService.Heartbeat:Connect(function()
+    if espActive then
+        reloadESP()
+
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj.Name == "GunDrop" then
+                local targetPart = obj:IsA("BasePart") and obj or (obj:IsA("Model") and obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart"))
+                if targetPart then
+                    local dropGui = targetPart:FindFirstChild("GunDropTextESP")
+                    if not dropGui then
+                        dropGui = Instance.new("BillboardGui")
+                        dropGui.Name = "GunDropTextESP"
+                        dropGui.Size = UDim2.new(0, 150, 0, 50)
+                        dropGui.StudsOffset = Vector3.new(0, 2, 0)
+                        dropGui.AlwaysOnTop = true
+                        dropGui.Parent = targetPart
+
+                        local dropLabel = Instance.new("TextLabel", dropGui)
+                        dropLabel.Name = 'Label'
+                        dropLabel.Size = UDim2.new(1, 0, 1, 0)
+                        dropLabel.BackgroundTransparency = 1
+                        dropLabel.Text = "dropped gun."
+                        dropLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+                        dropLabel.TextScaled = true
+                        dropLabel.Font = Enum.Font.SourceSansBold
+                        dropLabel.TextStrokeTransparency = 0
+                    end
+
+                    if autoPickupGunActive then
+                        pcall(function()
+                            local character = LocalPlayer.Character
+                            local hrp = character and character:FindFirstChild("HumanoidRootPart")
+                            if hrp and targetPart then
+                                if firetouchinterest then
+                                    firetouchinterest(hrp, targetPart, 0)
+                                    firetouchinterest(hrp, targetPart, 1)
+                                end
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+    else
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr.Character then
+                if plr.Character:FindFirstChild("BombHubESP") then plr.Character.BombHubESP:Destroy() end
+                if plr.Character:FindFirstChild("RoleTextESP") then plr.Character.RoleTextESP:Destroy() end
+            end
+        end
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj.Name == "GunDrop" then
+                local targetPart = obj:IsA("BasePart") and obj or (obj:IsA("Model") and obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart"))
+                if targetPart and targetPart:FindFirstChild("GunDropTestESP") then
+                    targetPart.GunDropTextESP:Destroy()
+                end
+            end
+        end
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    task.wait(1)
+    if goldJumpActive then createGoldBombButton() end
+    if fakeJumpActive then createFakeBombButton() end
+    if poolJumpActive then createPoolJumpButton() end
+    if gunActive then createGunButton() end
+    if buffedActive then createBuffedShootButton() end
+end)
 
 Rayfield:LoadConfiguration()
