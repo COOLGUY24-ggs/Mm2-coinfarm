@@ -77,6 +77,10 @@ local savedGunPosition = UDim2.new(0.5, -65, 0.5, -22)
 local gunActive = false
 local gunLockedPermanently = false
 
+local savedBuffedPosition = UDim2.new(0.5, -65, 0.35, -22)
+local buffedActive = false
+local buffedLockedPermanently = false
+
 local savedPoolPosition = UDim2.new(0.5, -65, 0.4, -22)
 local poolJumpActive = false
 local poolLockedPermanently = false
@@ -144,6 +148,10 @@ local function getAdvancedPredictedPosition(shooterHrp, targetHrp, projectileSpe
     local targetPos = targetHrp.Position
     local targetVel = targetHrp.AssemblyLinearVelocity
     local shooterVel = shooterHrp.AssemblyLinearVelocity
+
+    if targetVel.Magnitude < 0.5 then
+        return targetPos
+    end
 
     local relativeVel = targetVel - shooterVel
     local distance = (shooterHrp.Position - targetPos).Magnitude
@@ -475,7 +483,6 @@ local function createPoolJumpButton()
     end)
 end
 
--- Forward declaration of reloadESP for the shoot button scope
 local reloadESP
 
 local function createGunButton()
@@ -512,7 +519,6 @@ local function createGunButton()
     local holdStartTime = 0
     local isHolding = false
 
-    -- Triple-click ESP reload variables
     local clickCount = 0
     local lastClickTick = 0
 
@@ -559,7 +565,6 @@ local function createGunButton()
             dragging = false
 
             if tick() - holdStartTime < 0.5 then
-                -- Triple-click detection for reloading ESP
                 local currentTickTime = tick()
                 if currentTickTime - lastClickTick <= 0.4 then
                     clickCount = clickCount + 1
@@ -675,12 +680,18 @@ local function createGunButton()
                     end
 
                     if murdererHrp and char and char:FindFirstChild("Gun") then
+                        task.wait(0.1)
+
                         local gunTool = char:FindFirstChild("Gun")
                         local shootRemote = gunTool:FindFirstChild("Shoot")
                         if shootRemote then
                             local startPosCFrame = gunTool:FindFirstChild("Handle") and gunTool.Handle.CFrame or hrp.CFrame
                             
                             local predictedMurdererPos = getAdvancedPredictedPosition(hrp, murdererHrp, 350)
+                            -- PRECIES 1 STUD ACHTER HEM/HAAR:
+                            local backOffset = murdererHrp.CFrame.LookVector * -1.0
+                            predictedMurdererPos = predictedMurdererPos + backOffset
+
                             if farModeEnabled then
                                 predictedMurdererPos = predictedMurdererPos + (murdererHrp.AssemblyLinearVelocity * 0.5)
                             end
@@ -694,6 +705,151 @@ local function createGunButton()
                     end
                 end
             end
+        end
+    end)
+end
+
+local function createBuffedShootButton()
+    if playerGui:FindFirstChild("BuffedShootButtonGui") then
+        playerGui.BuffedShootButtonGui:Destroy()
+    end
+
+    local sg = Instance.new("ScreenGui", playerGui)
+    sg.Name = "BuffedShootButtonGui"
+    sg.ResetOnSpawn = false
+
+    local btn = Instance.new("TextButton", sg)
+    btn.Size = UDim2.new(0, 110, 0, 50)
+    btn.Position = savedBuffedPosition
+    btn.BackgroundColor3 = Color3.fromRGB(150, 0, 255)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = "BUFFED SHOOT"
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 14
+    btn.Active = true
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 12)
+
+    local lockLabel = Instance.new("TextLabel", btn)
+    lockLabel.Size = UDim2.new(0, 20, 0, 20)
+    lockLabel.Position = UDim2.new(1, -22, 0, 2)
+    lockLabel.BackgroundTransparency = 1
+    lockLabel.Text = "🔒"
+    lockLabel.TextSize = 14
+    lockLabel.Visible = buffedLockedPermanently
+
+    local locked = buffedLockedPermanently
+    local dragging, dragStart, startPos = false, nil, nil
+    local lastClickTime = 0
+
+    btn:GetPropertyChangedSignal("Position"):Connect(function()
+        if sg.Parent and not locked then savedBuffedPosition = btn.Position end
+    end)
+
+    btn.InputBegan:Connect(function(i)
+        if not locked and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
+            dragging = true
+            dragStart = i.Position
+            startPos = btn.Position
+        end
+    end)
+
+    game:GetService("UserInputService").InputChanged:Connect(function(i)
+        if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local delta = i.Position - dragStart
+            btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            savedBuffedPosition = btn.Position
+        end
+    end)
+
+    btn.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        local currentTime = tick()
+        if currentTime - lastClickTime <= 1 then
+            if not locked then
+                locked = true
+                buffedLockedPermanently = true
+                lockLabel.Visible = true
+                dragging = false
+            end
+            lastClickTime = 0
+        else
+            lastClickTime = currentTime
+
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+            local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+            if not hrp or not humanoid then return end
+
+            local gun = (char and char:FindFirstChild("Gun")) or (backpack and backpack:FindFirstChild("Gun"))
+            if not gun then
+                btn.Text = "No gun!"
+                task.delay(1.5, function() if btn.Text == "No gun!" then btn.Text = "BUFFED SHOOT" end end)
+                return
+            end
+
+            local murdererHrp = nil
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character then
+                    local pChar = plr.Character
+                    local pBackpack = plr:FindFirstChildOfClass("Backpack")
+                    local pHum = pChar:FindFirstChildOfClass("Humanoid")
+                    local pRoot = pChar:FindFirstChild("HumanoidRootPart")
+                    
+                    if pHum and pHum.Health > 0 and pRoot then
+                        local hasKnife = pChar:FindFirstChild("Knife") or (pBackpack and pBackpack:FindFirstChild("Knife"))
+                        if hasKnife then
+                            murdererHrp = pRoot
+                            break
+                        end
+                    end
+                end
+            end
+
+            if not murdererHrp then
+                btn.Text = "No Murd!"
+                task.delay(1.5, function() if btn.Text == "No Murd!" then btn.Text = "BUFFED SHOOT" end end)
+                return
+            end
+
+            if backpack and backpack:FindFirstChild("Gun") then
+                for _, child in ipairs(char:GetChildren()) do if child:IsA("Tool") then child.Parent = backpack end end
+                backpack.Gun.Parent = char
+            end
+
+            local originalCFrame = hrp.CFrame
+            local oldPlatformStand = humanoid.PlatformStand
+            humanoid.PlatformStand = true
+
+            hrp.CFrame = murdererHrp.CFrame + Vector3.new(0, 3.5, 0)
+            hrp.AssemblyLinearVelocity = Vector3.zero
+
+            task.wait(0.1)
+
+            local gunTool = char:FindFirstChild("Gun")
+            local shootRemote = gunTool and gunTool:FindFirstChild("Shoot")
+            if shootRemote then
+                local startPosCFrame = gunTool:FindFirstChild("Handle") and gunTool.Handle.CFrame or hrp.CFrame
+                local predictedMurdererPos = getAdvancedPredictedPosition(hrp, murdererHrp, 350)
+                -- PRECIES 1 STUD ACHTER HEM/HAAR:
+                local backOffset = murdererHrp.CFrame.LookVector * -1.0
+                predictedMurdererPos = predictedMurdererPos + backOffset
+
+                local args = {
+                    CFrame.new(startPosCFrame.Position, predictedMurdererPos),
+                    murdererHrp.CFrame
+                }
+                pcall(function() shootRemote:FireServer(unpack(args)) end)
+            end
+
+            hrp.CFrame = originalCFrame
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            humanoid.PlatformStand = oldPlatformStand
         end
     end)
 end
@@ -907,7 +1063,6 @@ local function handleStuckCombat()
     isExecutingCombat = false
 end
 
--- Coin Farm Loop
 task.spawn(function()
     while true do
         if autoFarmEnabled and not isExecutingCombat then
@@ -1091,7 +1246,7 @@ local function executeFlingUntilDead(targetChar)
     end)
 end
 
--- --- PERSISTENT SERVER DATA & COMPREHENSIVE ROLE ASSIGNMENT FIX --- --
+-- --- PERSISTENT SERVER DATA & ROLE ASSIGNMENT --- --
 
 local persistentRoles = {}
 
@@ -1314,6 +1469,16 @@ CombatTab:CreateToggle({
     Callback = function(Value)
         gunActive = Value
         if Value then createGunButton() else if playerGui:FindFirstChild("GunButtonGui") then playerGui.GunButtonGui:Destroy() end end
+    end,
+})
+
+CombatTab:CreateToggle({
+    Name = "buffed shoot murderer",
+    CurrentValue = false,
+    Flag = "BuffedShootToggle",
+    Callback = function(Value)
+        buffedActive = Value
+        if Value then createBuffedShootButton() else if playerGui:FindFirstChild("BuffedShootButtonGui") then playerGui.BuffedShootButtonGui:Destroy() end end
     end,
 })
 
@@ -1901,6 +2066,7 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     if fakeJumpActive then createFakeBombButton() end
     if poolJumpActive then createPoolJumpButton() end
     if gunActive then createGunButton() end
+    if buffedActive then createBuffedShootButton() end
 end)
 
 Rayfield:LoadConfiguration()
