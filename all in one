@@ -1,5 +1,5 @@
 --[[
-    Project: Ultimate MM2 Hub (All Players ESP Fix - Excluding LocalPlayer) | Luaroblox_helper
+    Project: Ultimate MM2 Hub (Safe Fake-Touch Gun Pickup + External Fly Integration) | Luaroblox_helper
     Language: English
 ]]
 
@@ -44,6 +44,15 @@ local KillTab = Window:CreateTab("Kill Tab", 4483362458)
 local FlingTab = Window:CreateTab("Fling", 4483362458)
 local MiscTab = Window:CreateTab("Misc", 4483345998)
 local AdminTab = Window:CreateTab("Admin", 4483362458)
+
+-- Add informative label to every tab as requested
+local infoText = "💡 Hold the shoot button for far mode and double click to permanently keep it there till u leave"
+CombatTab:CreateLabel(infoText)
+FarmTab:CreateLabel(infoText)
+KillTab:CreateLabel(infoText)
+FlingTab:CreateLabel(infoText)
+MiscTab:CreateLabel(infoText)
+AdminTab:CreateLabel(infoText)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -1082,7 +1091,7 @@ local function executeFlingUntilDead(targetChar)
     end)
 end
 
--- --- PERSISTENT SERVER DATA & COMPREHENSIVE ROLE ASSIGNMENT FIX (EXCLUDING LOCALPLAYER) --- --
+-- --- PERSISTENT SERVER DATA & COMPREHENSIVE ROLE ASSIGNMENT FIX --- --
 
 local persistentRoles = {}
 
@@ -1319,11 +1328,12 @@ CombatTab:CreateToggle({
 })
 
 CombatTab:CreateToggle({
-    Name = "Auto Pickup Gun (Safe FireTouchInterest)",
+    Name = "Auto Pickup Gun (Teleportless FireTouch)",
     CurrentValue = false,
     Flag = "AutoPickupGunToggle",
     Callback = function(Value)
         autoPickupGunActive = Value
+        Rayfield:Notify({ Title = "Auto Pickup Gun", Content = Value and "Teleportless gun pickup enabled!" or "Auto pickup disabled.", Duration = 3 })
     end,
 })
 
@@ -1616,6 +1626,18 @@ FlingTab:CreateButton({
     end,
 })
 
+-- --- MISC TAB: EXTERNAL FLY & OTHERS --- --
+
+MiscTab:CreateButton({
+    Name = "Load External Fly Script",
+    Callback = function()
+        pcall(function()
+            loadstring(game:HttpGet("https://pastefy.app/IHIgGN9b/raw"))()
+            Rayfield:Notify({ Title = "Fly Loaded", Content = "External fly script loaded successfully!", Duration = 3 })
+        end)
+    end,
+})
+
 MiscTab:CreateToggle({
     Name = "Infinite Jump",
     CurrentValue = false,
@@ -1845,18 +1867,9 @@ RunService.Heartbeat:Connect(function()
                             local character = LocalPlayer.Character
                             local hrp = character and character:FindFirstChild("HumanoidRootPart")
                             if hrp and targetPart then
-                                local distToGun = (hrp.Position - targetPart.Position).Magnitude
-                                if distToGun <= 1500 and (targetPart.Position - Vector3.new(1, -66, -17)).Magnitude > 25 then
-                                    local oldPos = hrp.CFrame
-                                    hrp.CFrame = targetPart.CFrame + Vector3.new(0, 1, 0)
-                                    task.wait(0.05)
-                                    if firetouchinterest then
-                                         firetouchinterest(hrp, targetPart, 0)
-                                         firetouchinterest(hrp, targetPart, 1)
-                                    end
-                                    task.wait(0.05)
-                                    hrp.CFrame = oldPos
-                                    Rayfield:Notify({ Title = "Gun Picked Up", Content = "Successfully collected dropped gun safely!", Duration = 3 })
+                                if firetouchinterest then
+                                    firetouchinterest(hrp, targetPart, 0)
+                                    firetouchinterest(hrp, targetPart, 1)
                                 end
                             end
                         end)
