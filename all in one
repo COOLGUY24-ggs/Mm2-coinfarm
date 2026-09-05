@@ -635,7 +635,7 @@ local function createGunButton()
                             
                             local predictedPos = getAdvancedPredictedPosition(hrp, targetHrp, 130)
                             if farModeEnabled then
-                                predictedPos = predictedPos + (targetHrp.AssemblyLinearVelocity * 0.5)
+                                predictedPos = predictedPos + (targetHrp.AssemblyLinearVelocity * 1.0)
                             end
 
                             local args = {
@@ -693,7 +693,7 @@ local function createGunButton()
                             predictedMurdererPos = predictedMurdererPos + backOffset
 
                             if farModeEnabled then
-                                predictedMurdererPos = predictedMurdererPos + (murdererHrp.AssemblyLinearVelocity * 0.5)
+                                predictedMurdererPos = predictedMurdererPos + (murdererHrp.AssemblyLinearVelocity * 1.0)
                             end
 
                             local args = {
@@ -836,6 +836,10 @@ local function createBuffedShootButton()
                 local predictedMurdererPos = getAdvancedPredictedPosition(hrp, murdererHrp, 350)
                 local backOffset = murdererHrp.CFrame.LookVector * -1.0
                 predictedMurdererPos = predictedMurdererPos + backOffset
+
+                if farModeEnabled then
+                    predictedMurdererPos = predictedMurdererPos + (murdererHrp.AssemblyLinearVelocity * 0.5)
+                end
 
                 local args = {
                     CFrame.new(startPosCFrame.Position, predictedMurdererPos),
