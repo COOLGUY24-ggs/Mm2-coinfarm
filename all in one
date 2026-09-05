@@ -688,7 +688,7 @@ local function createGunButton()
                             local startPosCFrame = gunTool:FindFirstChild("Handle") and gunTool.Handle.CFrame or hrp.CFrame
                             
                             local predictedMurdererPos = getAdvancedPredictedPosition(hrp, murdererHrp, 350)
-                            local backOffset = murdererHrp.CFrame.LookVector * -1.0
+                            local backOffset = murdererHrp.CFrame.LookVector * -3.5
                             predictedMurdererPos = predictedMurdererPos + backOffset
 
                             if farModeEnabled then
@@ -792,7 +792,8 @@ local function createBuffedShootButton()
                 return
             end
 
-            local murdererHrp = nil
+            -- Target both Murderer and Sheriff
+            local targetHrp = nil
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LocalPlayer and plr.Character then
                     local pChar = plr.Character
@@ -802,17 +803,18 @@ local function createBuffedShootButton()
                     
                     if pHum and pHum.Health > 0 and pRoot then
                         local hasKnife = pChar:FindFirstChild("Knife") or (pBackpack and pBackpack:FindFirstChild("Knife"))
-                        if hasKnife then
-                            murdererHrp = pRoot
+                        local hasGun = pChar:FindFirstChild("Gun") or (pBackpack and pBackpack:FindFirstChild("Gun"))
+                        if hasKnife or hasGun then
+                            targetHrp = pRoot
                             break
                         end
                     end
                 end
             end
 
-            if not murdererHrp then
-                btn.Text = "No Murd!"
-                task.delay(1.5, function() if btn.Text == "No Murd!" then btn.Text = "BUFFED SHOOT" end end)
+            if not targetHrp then
+                btn.Text = "No Target!"
+                task.delay(1.5, function() if btn.Text == "No Target!" then btn.Text = "BUFFED SHOOT" end end)
                 return
             end
 
@@ -825,24 +827,24 @@ local function createBuffedShootButton()
             local oldPlatformStand = humanoid.PlatformStand
             humanoid.PlatformStand = true
 
-            hrp.CFrame = murdererHrp.CFrame + Vector3.new(0, 3.5, 0)
+            hrp.CFrame = targetHrp.CFrame + Vector3.new(0, 3.5, 0)
             hrp.AssemblyLinearVelocity = Vector3.zero
 
             local gunTool = char:FindFirstChild("Gun")
             local shootRemote = gunTool and gunTool:FindFirstChild("Shoot")
             if shootRemote then
                 local startPosCFrame = gunTool:FindFirstChild("Handle") and gunTool.Handle.CFrame or hrp.CFrame
-                local predictedMurdererPos = getAdvancedPredictedPosition(hrp, murdererHrp, 350)
-                local backOffset = murdererHrp.CFrame.LookVector * -1.0
-                predictedMurdererPos = predictedMurdererPos + backOffset
+                local predictedTargetPos = getAdvancedPredictedPosition(hrp, targetHrp, 350)
+                local backOffset = targetHrp.CFrame.LookVector * -3.5
+                predictedTargetPos = predictedTargetPos + backOffset
 
                 if farModeEnabled then
-                    predictedMurdererPos = predictedMurdererPos + (murdererHrp.AssemblyLinearVelocity * 0.5)
+                    predictedTargetPos = predictedTargetPos + (targetHrp.AssemblyLinearVelocity * 0.5)
                 end
 
                 local args = {
-                    CFrame.new(startPosCFrame.Position, predictedMurdererPos),
-                    murdererHrp.CFrame
+                    CFrame.new(startPosCFrame.Position, predictedTargetPos),
+                    targetHrp.CFrame
                 }
                 pcall(function() shootRemote:FireServer(unpack(args)) end)
             end
@@ -1569,7 +1571,7 @@ FarmTab:CreateSlider({
 -- --- KILL TAB SETUP (FIXED) --- --
 
 KillTab:CreateButton({
-    Name = "Kill All for Murd",
+    Name = "Kill All for Murd & Sheriff",
     Callback = function()
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -1579,13 +1581,13 @@ KillTab:CreateButton({
             return
         end
 
-        local knife = getWeapon("Knife")
-        if not knife then
-            Rayfield:Notify({ Title = "Error", Content = "You need to be Murderer (have a knife) to use this!", Duration = 3 })
+        local weapon = getWeapon("Knife") or getWeapon("Gun")
+        if not weapon then
+            Rayfield:Notify({ Title = "Error", Content = "You need to have a Knife or Gun to use this!", Duration = 3 })
             return
         end
 
-        humanoid:EquipTool(knife)
+        humanoid:EquipTool(weapon)
         Rayfield:Notify({ Title = "Kill All", Content = "Fixing positions and eliminating players...", Duration = 3 })
 
         task.spawn(function()
