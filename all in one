@@ -157,7 +157,6 @@ local function getAdvancedPredictedPosition(shooterHrp, targetHrp, projectileSpe
     local distance = (shooterHrp.Position - targetPos).Magnitude
     local timeOfFlight = distance / projectileSpeed
 
-    -- Verbeterde predictieformule met extra correctiefactor voor bewegende spelers
     local predictionFactor = 0.65
 
     if distance >= 35 then
@@ -1567,14 +1566,15 @@ FarmTab:CreateSlider({
     end,
 })
 
--- --- KILL TAB SETUP --- --
+-- --- KILL TAB SETUP (FIXED) --- --
 
 KillTab:CreateButton({
     Name = "Kill All for Murd",
     Callback = function()
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not hrp then
+        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not humanoid then
             Rayfield:Notify({ Title = "Error", Content = "Character not found!", Duration = 3 })
             return
         end
@@ -1585,30 +1585,33 @@ KillTab:CreateButton({
             return
         end
 
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if humanoid then humanoid:EquipTool(knife) end
-
-        Rayfield:Notify({ Title = "Kill All", Content = "Bringing nearby players to you until they die...", Duration = 3 })
+        humanoid:EquipTool(knife)
+        Rayfield:Notify({ Title = "Kill All", Content = "Fixing positions and eliminating players...", Duration = 3 })
 
         task.spawn(function()
+            local oldPlatformStand = humanoid.PlatformStand
+            humanoid.PlatformStand = true
+
             for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                    local pRoot = player.Character:FindFirstChild("HumanoidRootPart")
-                    local pHum = player.Character:FindFirstChildOfClass("Humanoid")
+                if player ~= LocalPlayer then
+                    local pChar = player.Character
+                    local pRoot = pChar and pChar:FindFirstChild("HumanoidRootPart")
+                    local pHum = pChar and pChar:FindFirstChildOfClass("Humanoid")
                     
-                    if pRoot and pHum and pHum.Health > 0 then
-                        local dist = (hrp.Position - pRoot.Position).Magnitude
-                        if dist <= 1500 then
-                            while player.Character and pRoot and pHum and pHum.Health > 0 and humanoid and humanoid.Health > 0 do
-                                pRoot.CFrame = hrp.CFrame * CFrame.new(0, 0, -2)
-                                pRoot.AssemblyLinearVelocity = Vector3.zero
-                                task.wait(0.1)
-                            end
+                    if pChar and pRoot and pHum and pHum.Health > 0 then
+                        local startTime = tick()
+                        while pChar.Parent and pRoot.Parent and pHum.Health > 0 and humanoid.Health > 0 and tick() - startTime < 3 do
+                            hrp.CFrame = pRoot.CFrame * CFrame.new(0, 0, 1.2)
+                            pRoot.AssemblyLinearVelocity = Vector3.zero
+                            pRoot.AssemblyAngularVelocity = Vector3.zero
+                            task.wait(0.05)
                         end
                     end
                 end
             end
-            Rayfield:Notify({ Title = "Kill All Finished", Content = "All valid players brought and handled!", Duration = 3 })
+
+            humanoid.PlatformStand = oldPlatformStand
+            Rayfield:Notify({ Title = "Kill All Finished", Content = "All target players processed!", Duration = 3 })
         end)
     end,
 })
@@ -1618,7 +1621,8 @@ KillTab:CreateButton({
     Callback = function()
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not hrp then
+        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not humanoid then
             Rayfield:Notify({ Title = "Error", Content = "Character not found!", Duration = 3 })
             return
         end
@@ -1642,18 +1646,26 @@ KillTab:CreateButton({
         end
 
         if murderer and murderer.Character and murderer.Character:FindFirstChild("HumanoidRootPart") then
-            local mRoot = murderer.Character.HumanoidRootPart
-            local mHum = murderer.Character:FindFirstChildOfClass("Humanoid")
+            local mChar = murderer.Character
+            local mRoot = mChar.HumanoidRootPart
+            local mHum = mChar:FindFirstChildOfClass("Humanoid")
             
-            Rayfield:Notify({ Title = "Murderer Targeted", Content = "Bringing " .. murderer.Name .. " to you until they die...", Duration = 3 })
+            Rayfield:Notify({ Title = "Murderer Targeted", Content = "Teleporting to " .. murderer.Name .. " to eliminate!", Duration = 3 })
             
             task.spawn(function()
-                while murderer.Character and mRoot and mHum and mHum.Health > 0 do
-                    mRoot.CFrame = hrp.CFrame * CFrame.new(0, 0, -2)
+                local oldPlatformStand = humanoid.PlatformStand
+                humanoid.PlatformStand = true
+
+                local startTime = tick()
+                while mChar.Parent and mRoot.Parent and mHum.Health > 0 and humanoid.Health > 0 and tick() - startTime < 5 do
+                    hrp.CFrame = mRoot.CFrame * CFrame.new(0, 0, 1.2)
                     mRoot.AssemblyLinearVelocity = Vector3.zero
-                    task.wait(0.1)
+                    mRoot.AssemblyAngularVelocity = Vector3.zero
+                    task.wait(0.05)
                 end
-                Rayfield:Notify({ Title = "Success", Content = "Murderer is dead!", Duration = 3 })
+
+                humanoid.PlatformStand = oldPlatformStand
+                Rayfield:Notify({ Title = "Success", Content = "Target process finished!", Duration = 3 })
             end)
         else
             Rayfield:Notify({ Title = "Error", Content = "No Murderer found in the game!", Duration = 3 })
