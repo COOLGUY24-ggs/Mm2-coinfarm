@@ -483,8 +483,6 @@ local function createPoolJumpButton()
     end)
 end
 
-local reloadESP
-
 local function createGunButton()
     if playerGui:FindFirstChild("GunButtonGui") then
         playerGui.GunButtonGui:Destroy()
@@ -518,9 +516,6 @@ local function createGunButton()
     local lastClickTime = 0
     local holdStartTime = 0
     local isHolding = false
-
-    local clickCount = 0
-    local lastClickTick = 0
 
     btn:GetPropertyChangedSignal("Position"):Connect(function()
         if sg.Parent and not locked then savedGunPosition = btn.Position end
@@ -565,25 +560,6 @@ local function createGunButton()
             dragging = false
 
             if tick() - holdStartTime < 0.5 then
-                local currentTickTime = tick()
-                if currentTickTime - lastClickTick <= 0.4 then
-                    clickCount = clickCount + 1
-                else
-                    clickCount = 1
-                end
-                lastClickTick = currentTickTime
-
-                if clickCount >= 3 then
-                    clickCount = 0
-                    pcall(function()
-                        if reloadESP then
-                            reloadESP()
-                        end
-                        Rayfield:Notify({ Title = "ESP Reloaded", Content = "ESP is handmatig ververst via de shoot knop!", Duration = 2 })
-                    end)
-                    return
-                end
-
                 local currentTime = tick()
                 if currentTime - lastClickTime <= 1 then
                     if not locked then
@@ -1292,7 +1268,7 @@ pcall(function()
     end
 end)
 
-reloadESP = function()
+local reloadESP = function()
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer and plr.Character then
             local char = plr.Character
@@ -1568,7 +1544,101 @@ FarmTab:CreateSlider({
     end,
 })
 
--- --- KILL TAB SETUP (FIXED) --- --
+-- --- KILL TAB SETUP (UPDATED WITH SLIDER & DYNAMIC PLAYER LIST) --- --
+
+local function getOtherPlayerNames()
+    local list = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            table.insert(list, plr.Name)
+        end
+    end
+    if #list == 0 then
+        table.insert(list, "None")
+    end
+    return list
+end
+
+local selectedChosenPlayerName = ""
+local chosenPlayerDropdown = KillTab:CreateDropdown({
+    Name = "Select Player to Kill",
+    Options = getOtherPlayerNames(),
+    CurrentOption = getOtherPlayerNames()[1] or "None",
+    Flag = "ChosenPlayerDropdown",
+    Callback = function(Option)
+        selectedChosenPlayerName = type(Option) == "table" and (Option[1] or "") or tostring(Option)
+    end,
+})
+
+Players.PlayerAdded:Connect(function()
+    task.wait(0.1)
+    local updatedNames = getOtherPlayerNames()
+    chosenPlayerDropdown:Refresh(updatedNames, true)
+    if not table.find(updatedNames, selectedChosenPlayerName) then
+        selectedChosenPlayerName = updatedNames[1] or ""
+    end
+end)
+
+Players.PlayerRemoving:Connect(function()
+    task.wait(0.1)
+    local updatedNames = getOtherPlayerNames()
+    chosenPlayerDropdown:Refresh(updatedNames, true)
+    if not table.find(updatedNames, selectedChosenPlayerName) then
+        selectedChosenPlayerName = updatedNames[1] or ""
+    end
+end)
+
+KillTab:CreateButton({
+    Name = "Kill Chosen Player",
+    Callback = function()
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not humanoid then
+            Rayfield:Notify({ Title = "Error", Content = "Character not found!", Duration = 3 })
+            return
+        end
+
+        local weapon = getWeapon("Knife") or getWeapon("Gun")
+        if not weapon then
+            Rayfield:Notify({ Title = "Error", Content = "You need to have a Knife or Gun to use this!", Duration = 3 })
+            return
+        end
+
+        local targetPlayer = Players:FindFirstChild(selectedChosenPlayerName)
+        if not targetPlayer or targetPlayer == LocalPlayer then
+            Rayfield:Notify({ Title = "Error", Content = "Invalid player selected!", Duration = 3 })
+            return
+        end
+
+        local tChar = targetPlayer.Character
+        local tRoot = tChar and tChar:FindFirstChild("HumanoidRootPart")
+        local tHum = tChar and tChar:FindFirstChildOfClass("Humanoid")
+        if not tChar or not tRoot or not tHum or tHum.Health <= 0 then
+            Rayfield:Notify({ Title = "Error", Content = "Target player is not spawned or already dead!", Duration = 3 })
+            return
+        end
+
+        humanoid:EquipTool(weapon)
+        Rayfield:Notify({ Title = "Kill Chosen", Content = "Eliminating " .. targetPlayer.Name .. "...", Duration = 3 })
+
+        task.spawn(function()
+            local oldPlatformStand = humanoid.PlatformStand
+            humanoid.PlatformStand = true
+
+            local startTime = tick()
+            while tChar.Parent and tRoot.Parent and tHum.Health > 0 and humanoid.Health > 0 and tick() - startTime < 4 do
+                hrp.CFrame = tRoot.CFrame * CFrame.new(0, 0, 1.2)
+                tRoot.AssemblyLinearVelocity = Vector3.zero
+                tRoot.AssemblyAngularVelocity = Vector3.zero
+                task.wait(0.05)
+            end
+
+            humanoid.PlatformStand = oldPlatformStand
+            Rayfield:Notify({ Title = "Finished", Content = "Process completed for " .. targetPlayer.Name, Duration = 3 })
+        end)
+    end,
+})
 
 KillTab:CreateButton({
     Name = "Kill All for Murd & Sheriff",
