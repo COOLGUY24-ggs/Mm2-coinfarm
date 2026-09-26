@@ -43,7 +43,6 @@ local FarmTab = Window:CreateTab("Coin Farm", 4483362458)
 local KillTab = Window:CreateTab("Kill Tab", 4483362458)
 local FlingTab = Window:CreateTab("Fling", 4483362458)
 local MiscTab = Window:CreateTab("Misc", 4483345998)
-local AdminTab = Window:CreateTab("Admin", 4483362458)
 
 -- Add informative label to every tab
 local infoText = "💡 Hold the shoot button for far mode and double click to permanently keep it there till u leave"
@@ -52,7 +51,6 @@ FarmTab:CreateLabel(infoText)
 KillTab:CreateLabel(infoText)
 FlingTab:CreateLabel(infoText)
 MiscTab:CreateLabel(infoText)
-AdminTab:CreateLabel(infoText)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -2129,5 +2127,36 @@ MiscTab:CreateButton({
         pcall(function()
             loadstring(game:HttpGet("https://raw.githubusercontent.com/jbus/FlyScript/main/Fly.lua"))()
         end)
+    end,
+})
+
+MiscTab:CreateToggle({
+    Name = "Noclip",
+    CurrentValue = false,
+    Flag = "NoclipToggle",
+    Callback = function(Value)
+        noclipEnabled = Value
+        if noclipEnabled then
+            if not noclipConnection then
+                noclipConnection = RunService.Stepped:Connect(function()
+                    if not noclipEnabled then return end
+                    local char = LocalPlayer.Character
+                    if char then
+                        for _, part in ipairs(char:GetDescendants()) do
+                            if part:IsA("BasePart") then
+                                part.CanCollide = false
+                            end
+                        end
+                    end
+                end)
+            end
+            Rayfield:Notify({ Title = "Noclip", Content = "Noclip enabled!", Duration = 3 })
+        else
+            if noclipConnection then
+                noclipConnection:Disconnect()
+                noclipConnection = nil
+            end
+            Rayfield:Notify({ Title = "Noclip", Content = "Noclip disabled!", Duration = 3 })
+        end
     end,
 })
