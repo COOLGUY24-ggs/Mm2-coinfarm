@@ -1,5 +1,5 @@
 --[[
-    Project: Ultimate MM2 Hub (Dropped Gun ESP + Safe Touch Pickup + Fly) | Luaroblox_helper
+    Project: Ultimate MM2 Hub (Dropped Gun ESP + Safe Touch Pickup + Fly + Zone ESP) | Luaroblox_helper
     Language: English
 ]]
 
@@ -96,6 +96,10 @@ local autoPickupGunActive = false
 local playerData = {}
 local playerESP = false
 
+-- Zone ESP Settings (12, 507, -28 with 350 studs radius)
+local ZONE_CENTER = Vector3.new(12, 507, -28)
+local ZONE_RADIUS = 350
+
 -- Coin Farm Vars
 local autoFarmEnabled = false
 local antiAfkEnabled = false
@@ -176,6 +180,34 @@ end
 -- Listen for new dropped guns
 workspace.DescendantAdded:Connect(function(child)
     applyDroppedGunESP(child)
+end)
+
+-- --- REALISTIC PERMANENT FIRETOUCH AUTO PICKUP GUN --- --
+task.spawn(function()
+    while true do
+        if autoPickupGunActive then
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hrp = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+                
+                if hrp then
+                    for _, object in ipairs(workspace:GetDescendants()) do
+                        if object and (object.Name == "GunDrop" or object.Name == "Gundrop" or object.Name:lower() == "gundrop") then
+                            local touchInterest = object:FindFirstChildOfClass("TouchTransmitter") or object:FindFirstChild("TouchInterest")
+                            if touchInterest or object:IsA("BasePart") then
+                                if firetouchinterest then
+                                    firetouchinterest(hrp, object, 0)
+                                    task.wait(0.01)
+                                    firetouchinterest(hrp, object, 1)
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+        task.wait(0.1)
+    end
 end)
 
 -- --- PREDICTION FUNCTION --- --
@@ -1466,6 +1498,7 @@ local reloadESP = function()
                     end
                 end
 
+                -- Realtime check if someone picked up the gun or is holding the knife
                 local bp = plr:FindFirstChildOfClass("Backpack")
                 local hasGun = char:FindFirstChild("Gun") or (bp and bp:FindFirstChild("Gun"))
                 local hasKnife = char:FindFirstChild("Knife") or (bp and bp:FindFirstChild("Knife"))
@@ -1484,9 +1517,17 @@ local reloadESP = function()
                     color = Color3.fromRGB(0, 100, 255)
                     roleText = "Sheriff"
                 else
-                    persistentRoles[userIdStr] = "Innocent"
                     color = Color3.fromRGB(0, 255, 0)
                     roleText = "Innocent"
+                end
+
+                -- Location Zone ESP override (350 studs from 12, 507, -28)
+                local distFromZone = (root.Position - ZONE_CENTER).Magnitude
+                local isInZone = distFromZone <= ZONE_RADIUS
+                local hasCapitalWeapon = (char:FindFirstChild("Gun") or (bp and bp:FindFirstChild("Gun"))) or (char:FindFirstChild("Knife") or (bp and bp:FindFirstChild("Knife")))
+
+                if isInZone and not hasCapitalWeapon then
+                    color = Color3.fromRGB(255, 255, 255) -- White ESP
                 end
                 
                 local hl = char:FindFirstChild("BombHubESP")
@@ -1521,7 +1562,11 @@ local reloadESP = function()
 
                 local lbl = textGui:FindFirstChild("Title")
                 if lbl then
-                    lbl.Text = plr.Name .. "\n[" .. roleText .. "]"
+                    if isInZone and not hasCapitalWeapon then
+                        lbl.Text = plr.Name
+                    else
+                        lbl.Text = plr.Name .. "\n[" .. roleText .. "]"
+                    end
                     lbl.TextColor3 = color
                 end
             else
@@ -1536,6 +1581,23 @@ local reloadESP = function()
         end
     end
 end
+
+-- Continuous ESP Updater Loop
+task.spawn(function()
+    while true do
+        if playerESP then
+            pcall(reloadESP)
+        else
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr.Character then
+                    if plr.Character:FindFirstChild("BombHubESP") then plr.Character.BombHubESP:Destroy() end
+                    if plr.Character:FindFirstChild("RoleTextESP") then plr.Character.RoleTextESP:Destroy() end
+                end
+            end
+        end
+        task.wait(0.5)
+    end
+end)
 
 pcall(function()
     ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("PlayerDataChanged", 5).OnClientEvent:Connect(function(data)
@@ -2065,108 +2127,7 @@ MiscTab:CreateButton({
     Name = "Load External Fly Script",
     Callback = function()
         pcall(function()
-            loadstring(game:HttpGet("https://pastefy.app/IHIgGN9b/raw"))()
-            Rayfield:Notify({ Title = "Fly Loaded", Content = "External fly script loaded successfully!", Duration = 3 })
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/jbus/FlyScript/main/Fly.lua"))()
         end)
-    end,
-})
-
-MiscTab:CreateToggle({
-    Name = "Infinite Jump",
-    CurrentValue = false,
-    Flag = "InfiniteJumpToggle",
-    Callback = function(Value)
-        infiniteJumpEnabled = Value
-    end,
-})
-
-UserInputService.JumpRequest:Connect(function()
-    if infiniteJumpEnabled then
-        local character = LocalPlayer.Character
-        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-        end
-    end
-end)
-
-MiscTab:CreateToggle({
-    Name = "Noclip",
-    CurrentValue = false,
-    Flag = "NoclipToggle",
-    Callback = function(Value)
-        noclipEnabled = Value
-        if noclipEnabled then
-            noclipConnection = RunService.Stepped:Connect(function()
-                if LocalPlayer.Character then
-                    for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.CanCollide = false
-                        end
-                    end
-                end
-            end)
-        else
-            if noclipConnection then
-                noclipConnection:Disconnect()
-                noclipConnection = nil
-            end
-        end
-    end,
-})
-
-MiscTab:CreateSlider({
-    Name = "WalkSpeed",
-    Range = {16, 250},
-    Increment = 1,
-    CurrentValue = 16,
-    Flag = "WalkSpeedSlider",
-    Callback = function(Value)
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-            LocalPlayer.Character.Humanoid.WalkSpeed = Value
-        end
-    end,
-})
-
-MiscTab:CreateSlider({
-    Name = "JumpPower",
-    Range = {50, 500},
-    Increment = 5,
-    CurrentValue = 50,
-    Flag = "JumpPowerSlider",
-    Callback = function(Value)
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-            LocalPlayer.Character.Humanoid.UseJumpPower = true
-            LocalPlayer.Character.Humanoid.JumpPower = Value
-        end
-    end,
-})
-
-MiscTab:CreateToggle({
-    Name = "Anti-AFK Toggle",
-    CurrentValue = false,
-    Flag = "AntiAfkToggle",
-    Callback = function(Value)
-        antiAfkEnabled = Value
-        Rayfield:Notify({ Title = "Anti-AFK", Content = Value and "Anti-AFK activated!" or "Anti-AFK deactivated.", Duration = 3 })
-    end,
-})
-
-MiscTab:CreateSlider({
-    Name = "Anti-AFK Interval",
-    Range = {15, 60},
-    Increment = 1,
-    CurrentValue = 15,
-    Suffix = "s",
-    Flag = "AntiAfkIntervalSlider",
-    Callback = function(Value)
-        antiAfkInterval = Value
-    end,
-})
-
-MiscTab:CreateButton({
-    Name = "Rejoin Server",
-    Callback = function()
-        game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer)
     end,
 })
