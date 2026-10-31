@@ -1,5 +1,5 @@
 --[[
-    Project: Ultimate MM2 Hub (Dropped Gun ESP + Safe Touch Pickup + Fly + Zone ESP) | Luaroblox_helper
+    Project: Ultimate MM2 Hub (Dropped Gun ESP + Safe Touch Pickup + Fly + Zone ESP + Silent Wall Bypass) | Luaroblox_helper
     Language: English
 ]]
 
@@ -73,6 +73,10 @@ local fakeLockedPermanently = false
 local savedGunPosition = UDim2.new(0.5, -65, 0.5, -22)
 local gunActive = false
 local gunLockedPermanently = false
+
+local savedCurvePosition = UDim2.new(0.5, -65, 0.3, -22)
+local curveActive = false
+local curveLockedPermanently = false
 
 local savedBuffedPosition = UDim2.new(0.5, -65, 0.35, -22)
 local buffedActive = false
@@ -170,12 +174,10 @@ local function applyDroppedGunESP(object)
     end
 end
 
--- Check already existing dropped guns
 for _, child in ipairs(workspace:GetDescendants()) do
     applyDroppedGunESP(child)
 end
 
--- Listen for new dropped guns
 workspace.DescendantAdded:Connect(function(child)
     applyDroppedGunESP(child)
 end)
@@ -744,6 +746,137 @@ local function createGunButton()
                         end
                     end
                 end
+            end
+        end
+    end)
+end
+
+-- --- SILENT WALL BYPASS BUTTON (GEEN TELEPORT) --- --
+local function createCurveShootButton()
+    if playerGui:FindFirstChild("CurveShootButtonGui") then
+        playerGui.CurveShootButtonGui:Destroy()
+    end
+
+    local sg = Instance.new("ScreenGui", playerGui)
+    sg.Name = "CurveShootButtonGui"
+    sg.ResetOnSpawn = false
+
+    local btn = Instance.new("TextButton", sg)
+    btn.Size = UDim2.new(0, 130, 0, 45)
+    btn.Position = savedCurvePosition
+    btn.BackgroundColor3 = Color3.fromRGB(0, 200, 150)
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = "Silent Wall Bypass"
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 15
+    btn.Active = true
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
+
+    local lockLabel = Instance.new("TextLabel", btn)
+    lockLabel.Size = UDim2.new(0, 20, 0, 20)
+    lockLabel.Position = UDim2.new(1, -22, 0, 2)
+    lockLabel.BackgroundTransparency = 1
+    lockLabel.Text = "🔒"
+    lockLabel.TextSize = 14
+    lockLabel.Visible = curveLockedPermanently
+
+    local locked = curveLockedPermanently
+    local dragging, dragStart, startPos = false, nil, nil
+    local lastClickTime = 0
+
+    btn:GetPropertyChangedSignal("Position"):Connect(function()
+        if sg.Parent and not locked then savedCurvePosition = btn.Position end
+    end)
+
+    btn.InputBegan:Connect(function(i)
+        if not locked and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
+            dragging = true
+            dragStart = i.Position
+            startPos = btn.Position
+        end
+    end)
+
+    game:GetService("UserInputService").InputChanged:Connect(function(i)
+        if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local delta = i.Position - dragStart
+            btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            savedCurvePosition = btn.Position
+        end
+    end)
+
+    btn.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dragging = false end
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        local currentTime = tick()
+        if currentTime - lastClickTime <= 1 then
+            if not locked then
+                locked = true
+                curveLockedPermanently = true
+                lockLabel.Visible = true
+                dragging = false
+            end
+            lastClickTime = 0
+        else
+            lastClickTime = currentTime
+
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+            if not hrp then return end
+
+            local gun = (char and char:FindFirstChild("Gun")) or (backpack and backpack:FindFirstChild("Gun"))
+            if not gun then
+                btn.Text = "No gun!"
+                task.delay(1.5, function() if btn.Text == "No gun!" then btn.Text = "Silent Wall Bypass" end end)
+                return
+            end
+
+            if backpack and backpack:FindFirstChild("Gun") then
+                for _, child in ipairs(char:GetChildren()) do if child:IsA("Tool") then child.Parent = backpack end end
+                backpack.Gun.Parent = char
+            end
+
+            local murdererHrp = nil
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character then
+                    local pChar = plr.Character
+                    local pBackpack = plr:FindFirstChildOfClass("Backpack")
+                    local pHum = pChar:FindFirstChildOfClass("Humanoid")
+                    local pRoot = pChar:FindFirstChild("HumanoidRootPart")
+                    
+                    if pHum and pHum.Health > 0 and pRoot then
+                        local hasKnife = pChar:FindFirstChild("Knife") or (pBackpack and pBackpack:FindFirstChild("Knife"))
+                        if hasKnife then
+                            murdererHrp = pRoot
+                            break
+                        end
+                    end
+                end
+            end
+
+            if not murdererHrp then
+                btn.Text = "No Murd!"
+                task.delay(1.5, function() if btn.Text == "No Murd!" then btn.Text = "Silent Wall Bypass" end end)
+                return
+            end
+
+            local gunTool = char:FindFirstChild("Gun")
+            local shootRemote = gunTool and gunTool:FindFirstChild("Shoot")
+            if shootRemote then
+                local predictedPos = getAdvancedPredictedPosition(hrp, murdererHrp, 350)
+                local originBypass = murdererHrp.CFrame * CFrame.new(0, 0, -1.5)
+                
+                local args = {
+                    CFrame.new(originBypass.Position, predictedPos),
+                    murdererHrp.CFrame
+                }
+                
+                pcall(function() shootRemote:FireServer(unpack(args)) end)
+                
+                btn.Text = "Bypassed!"
+                task.delay(1.5, function() if btn.Text == "Bypassed!" then btn.Text = "Silent Wall Bypass" end end)
             end
         end
     end)
@@ -1496,7 +1629,6 @@ local reloadESP = function()
                     end
                 end
 
-                -- Realtime check if someone picked up the gun or is holding the knife
                 local bp = plr:FindFirstChildOfClass("Backpack")
                 local hasGun = char:FindFirstChild("Gun") or (bp and bp:FindFirstChild("Gun"))
                 local hasKnife = char:FindFirstChild("Knife") or (bp and bp:FindFirstChild("Knife"))
@@ -1519,13 +1651,12 @@ local reloadESP = function()
                     roleText = "Innocent"
                 end
 
-                -- Location Zone ESP override (350 studs from 12, 507, -28)
                 local distFromZone = (root.Position - ZONE_CENTER).Magnitude
                 local isInZone = distFromZone <= ZONE_RADIUS
                 local hasCapitalWeapon = (char:FindFirstChild("Gun") or (bp and bp:FindFirstChild("Gun"))) or (char:FindFirstChild("Knife") or (bp and bp:FindFirstChild("Knife")))
 
                 if isInZone and not hasCapitalWeapon then
-                    color = Color3.fromRGB(255, 255, 255) -- White ESP
+                    color = Color3.fromRGB(255, 255, 255)
                 end
                 
                 local hl = char:FindFirstChild("BombHubESP")
@@ -1580,7 +1711,6 @@ local reloadESP = function()
     end
 end
 
--- Continuous ESP Updater Loop
 task.spawn(function()
     while true do
         if playerESP then
@@ -1680,6 +1810,16 @@ CombatTab:CreateToggle({
     Callback = function(Value)
         gunActive = Value
         if Value then createGunButton() else if playerGui:FindFirstChild("GunButtonGui") then playerGui.GunButtonGui:Destroy() end end
+    end,
+})
+
+CombatTab:CreateToggle({
+    Name = "Silent Wall Bypass Button",
+    CurrentValue = false,
+    Flag = "CurveShootToggle",
+    Callback = function(Value)
+        curveActive = Value
+        if Value then createCurveShootButton() else if playerGui:FindFirstChild("CurveShootButtonGui") then playerGui.CurveShootButtonGui:Destroy() end end
     end,
 })
 
