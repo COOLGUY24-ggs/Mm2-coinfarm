@@ -37,14 +37,14 @@ local Window = Rayfield:CreateWindow({
     KeySystem = false,
 })
 
--- Tabs
+-- Tabs very tuff 
 local CombatTab = Window:CreateTab("Toggles", 4483362458)
 local FarmTab = Window:CreateTab("Coin Farm", 4483362458)
 local KillTab = Window:CreateTab("Kill Tab", 4483362458)
 local FlingTab = Window:CreateTab("Fling", 4483362458)
 local MiscTab = Window:CreateTab("Misc", 4483345998)
 
--- Add informative label to every tab
+-- add la peace
 local infoText = "💡 Hold the shoot button for far mode and double click to permanently keep it there till u leave"
 CombatTab:CreateLabel(infoText)
 FarmTab:CreateLabel(infoText)
@@ -61,7 +61,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- UI Positions & States
+-- UI Positions & States 67 times
 local savedGoldPosition = UDim2.new(0.5, -65, 0.7, -22)
 local goldJumpActive = false
 local goldLockedPermanently = false
@@ -103,7 +103,7 @@ local rolesAssignedTime = 0
 local ZONE_CENTER = Vector3.new(12, 507, -28)
 local ZONE_RADIUS = 350
 
--- Coin Farm Vars
+-- Coin Farm VAR
 local autoFarmEnabled = false
 local antiAfkEnabled = false
 local autoResetEnabled = false
@@ -117,7 +117,7 @@ local MAX_DISTANCE = 1500
 local isExecutingCombat = false
 local farModeEnabled = false
 
--- Fling Vars
+-- Fling VAR
 local targetPlayerName = ""
 local isFlinging = false
 local antiFlingEnabled = false
@@ -126,7 +126,7 @@ local autoTouchFlingEnabled = false
 local autoTouchFlingConnection = nil
 local flingReturnSeconds = 10
 
--- Misc Vars
+-- Misc VAR
 local noclipEnabled = false
 local noclipConnection = nil
 local infiniteJumpEnabled = false
@@ -212,7 +212,7 @@ task.spawn(function()
     end
 end)
 
--- --- DYNAMIC MOVEMENT PREDICTION FUNCTION (MOVING & JUMPING) --- --
+-- --- DYNAMICCCCCCCC MOVEMENT PREDICTION FUNCTION (MOVING & JUMPING) --- --
 local function getAdvancedPredictedPosition(shooterHrp, targetHrp, projectileSpeed)
     local targetPos = targetHrp.Position
     local targetVel = targetHrp.AssemblyLinearVelocity
@@ -248,7 +248,7 @@ local function getAdvancedPredictedPosition(shooterHrp, targetHrp, projectileSpe
     return predictedPos
 end
 
--- --- BOMB HUB & COMBAT FUNCTIONS --- --
+-- --- BOMBOCLATTT HUB & COMBAT FUNCTIONS --- --
 
 local function createGoldBombButton()
     if playerGui:FindFirstChild("GoldBombJumpGui") then
