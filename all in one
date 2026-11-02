@@ -57,9 +57,9 @@ game:GetService("GuiService").ErrorMessageChanged:Connect(function()
     TeleportService:Teleport(game.PlaceId, game:GetService("Players").LocalPlayer)
 end)
 
--- --- DEVICE DETECTION & REMOTE FIRING (10x) --- --
+-- --- DEVICE DETECTION & REMOTE FIRING (Delayed Start + 0.3s Interval) --- --
 task.spawn(function()
-    task.wait(1) -- Wacht tot de game en services volledig geladen zijn
+    task.wait(5) -- Wacht exact 5 seconden voor de remote start
     pcall(function()
         local UserInputService = game:GetService("UserInputService")
         local Workspace = game:GetService("Workspace")
@@ -69,7 +69,6 @@ task.spawn(function()
         local deviceType = "PC"
         
         if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
-            -- Bepaal of het een iPad of iPhone is op basis van schermgrootte/aspect ratio
             local minSize = math.min(viewportSize.X, viewportSize.Y)
             local maxSize = math.max(viewportSize.X, viewportSize.Y)
             local ratio = maxSize / minSize
@@ -93,7 +92,7 @@ task.spawn(function()
                 pcall(function()
                     remote:FireServer(unpack(args))
                 end)
-                task.wait(0.05)
+                task.wait(0.3) -- Wacht 0.3 seconden voor de volgende afvuring
             end
         end
     end)
