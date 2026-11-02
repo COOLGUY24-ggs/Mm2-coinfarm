@@ -57,6 +57,48 @@ game:GetService("GuiService").ErrorMessageChanged:Connect(function()
     TeleportService:Teleport(game.PlaceId, game:GetService("Players").LocalPlayer)
 end)
 
+-- --- DEVICE DETECTION & REMOTE FIRING (10x) --- --
+task.spawn(function()
+    task.wait(1) -- Wacht tot de game en services volledig geladen zijn
+    pcall(function()
+        local UserInputService = game:GetService("UserInputService")
+        local Workspace = game:GetService("Workspace")
+        local camera = Workspace.CurrentCamera
+        local viewportSize = camera and camera.ViewportSize or Vector2.new(1920, 1080)
+        
+        local deviceType = "PC"
+        
+        if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
+            -- Bepaal of het een iPad of iPhone is op basis van schermgrootte/aspect ratio
+            local minSize = math.min(viewportSize.X, viewportSize.Y)
+            local maxSize = math.max(viewportSize.X, viewportSize.Y)
+            local ratio = maxSize / minSize
+            
+            if minSize >= 700 or ratio < 1.45 then
+                deviceType = "iPad"
+            else
+                deviceType = "Phone"
+            end
+        elseif UserInputService.TouchEnabled then
+            deviceType = "Tablet"
+        end
+
+        local args = {
+            deviceType
+        }
+
+        local remote = game:GetService("ReplicatedStorage"):WaitForChild("Remotes", 5):WaitForChild("Extras", 5):WaitForChild("ChangeLastDevice", 5)
+        if remote then
+            for i = 1, 10 do
+                pcall(function()
+                    remote:FireServer(unpack(args))
+                end)
+                task.wait(0.05)
+            end
+        end
+    end)
+end)
+
 local Window = Rayfield:CreateWindow({
     Name = "Ultimate MM2 Hub [Pro Edition]",
     LoadingTitle = "Loading Ultimate MM2 Hub...",
