@@ -1,5 +1,5 @@
 --[[
-    Project: Ultimate MM2 Hub (Dropped Gun ESP + Safe Touch Pickup + Fly + Zone ESP + Silent Wall Bypass) | Luaroblox_helper
+    Project: Ultimate MM2 Hub (Universal Hitbox Bypass + Velocity Predictor + Optimal Farm) | Luaroblox_helper
     Language: English
 ]]
 
@@ -37,14 +37,14 @@ local Window = Rayfield:CreateWindow({
     KeySystem = false,
 })
 
--- Tabs
+-- Tabs very tuff 
 local CombatTab = Window:CreateTab("Toggles", 4483362458)
 local FarmTab = Window:CreateTab("Coin Farm", 4483362458)
 local KillTab = Window:CreateTab("Kill Tab", 4483362458)
 local FlingTab = Window:CreateTab("Fling", 4483362458)
 local MiscTab = Window:CreateTab("Misc", 4483345998)
 
--- Add informative label to every tab
+-- add la peace
 local infoText = "💡 Hold the shoot button for far mode and double click to permanently keep it there till u leave"
 CombatTab:CreateLabel(infoText)
 FarmTab:CreateLabel(infoText)
@@ -61,7 +61,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- UI Positions & States
+-- UI Positions & States 67 times
 local savedGoldPosition = UDim2.new(0.5, -65, 0.7, -22)
 local goldJumpActive = false
 local goldLockedPermanently = false
@@ -97,13 +97,13 @@ local autoPickupGunActive = false
 -- Server Data ESP Vars
 local playerData = {}
 local playerESP = false
-local rolesAssignedTime = 0 -- Track when roles were assigned for 11s timer
+local rolesAssignedTime = 0
 
 -- Zone ESP Settings (12, 507, -28 with 350 studs radius)
 local ZONE_CENTER = Vector3.new(12, 507, -28)
 local ZONE_RADIUS = 350
 
--- Coin Farm Vars
+-- Coin Farm VAR
 local autoFarmEnabled = false
 local antiAfkEnabled = false
 local autoResetEnabled = false
@@ -117,7 +117,7 @@ local MAX_DISTANCE = 1500
 local isExecutingCombat = false
 local farModeEnabled = false
 
--- Fling Vars
+-- Fling VAR
 local targetPlayerName = ""
 local isFlinging = false
 local antiFlingEnabled = false
@@ -126,7 +126,7 @@ local autoTouchFlingEnabled = false
 local autoTouchFlingConnection = nil
 local flingReturnSeconds = 10
 
--- Misc Vars
+-- Misc VAR
 local noclipEnabled = false
 local noclipConnection = nil
 local infiniteJumpEnabled = false
@@ -212,13 +212,14 @@ task.spawn(function()
     end
 end)
 
--- --- PREDICTION FUNCTION --- --
+-- --- DYNAMICCCCCCCC MOVEMENT PREDICTION FUNCTION (MOVING & JUMPING) --- --
 local function getAdvancedPredictedPosition(shooterHrp, targetHrp, projectileSpeed)
     local targetPos = targetHrp.Position
     local targetVel = targetHrp.AssemblyLinearVelocity
     local shooterVel = shooterHrp.AssemblyLinearVelocity
 
-    if targetVel.Magnitude < 0.5 then
+    -- Return stationary target position if barely moving
+    if targetVel.Magnitude < 0.2 then
         return targetPos
     end
 
@@ -226,23 +227,28 @@ local function getAdvancedPredictedPosition(shooterHrp, targetHrp, projectileSpe
     local distance = (shooterHrp.Position - targetPos).Magnitude
     local timeOfFlight = distance / projectileSpeed
 
-    local predictionFactor = 0.65
-
+    -- Dynamic scale for walking/running (approx 16 studs/sec) and jumping
+    local timeMultiplier = 1.0
     if distance >= 35 then
-        predictionFactor = 1.15
-    elseif distance >= 25 then
-        predictionFactor = 0.90
-    elseif distance >= 15 then
-        predictionFactor = 0.60
+        timeMultiplier = 1.25
+    elseif distance >= 20 then
+        timeMultiplier = 1.05
     else
-        predictionFactor = 0.25
+        timeMultiplier = 0.85
     end
 
-    local predictedPos = targetPos + (relativeVel * (timeOfFlight * predictionFactor))
+    -- Include horizontal movement and Y-axis jumping/falling velocity
+    local predictedPos = targetPos + (relativeVel * (timeOfFlight * timeMultiplier))
+    
+    -- Gravity offset correction if the target is in mid-air jumping
+    if math.abs(targetVel.Y) > 2 then
+        predictedPos = predictedPos + Vector3.new(0, targetVel.Y * timeOfFlight * 0.5, 0)
+    end
+
     return predictedPos
 end
 
--- --- BOMB HUB & COMBAT FUNCTIONS --- --
+-- --- BOMBOCLATTT HUB & COMBAT FUNCTIONS --- --
 
 local function createGoldBombButton()
     if playerGui:FindFirstChild("GoldBombJumpGui") then
@@ -753,7 +759,7 @@ local function createGunButton()
     end)
 end
 
--- --- SILENT WALL BYPASS BUTTON --- --
+-- --- DYNAMIC SILENT WALL BYPASS BUTTON (STATIONARY + MOVING/JUMPING SUPPORT) --- --
 local function createCurveShootButton()
     if playerGui:FindFirstChild("CurveShootButtonGui") then
         playerGui.CurveShootButtonGui:Destroy()
@@ -867,11 +873,31 @@ local function createCurveShootButton()
             local gunTool = char:FindFirstChild("Gun")
             local shootRemote = gunTool and gunTool:FindFirstChild("Shoot")
             if shootRemote then
+                -- Calculate full 3D dynamic predicted hit position
                 local predictedPos = getAdvancedPredictedPosition(hrp, murdererHrp, 350)
-                local originBypass = murdererHrp.CFrame * CFrame.new(0, 0, -1.5)
+                
+                -- Dynamic Avatar Size Offset
+                local orientation, size = char:GetBoundingBox()
+                local avatarRadius = math.max(size.X, size.Z) / 2 + 0.5
+                
+                -- Determine velocity orientation (moving vs stationary)
+                local murdVel = murdererHrp.AssemblyLinearVelocity
+                local moveDir = Vector3.new(murdVel.X, 0, murdVel.Z)
+                
+                local bypassCFrame
+                if moveDir.Magnitude > 2 then
+                    -- If Murderer is walking/running (approx 16 studs/sec), offset bullet origin along movement vector
+                    local moveDirectionNormalized = moveDir.Unit
+                    local originPos = murdererHrp.Position + (moveDirectionNormalized * (avatarRadius + 1.2)) + Vector3.new(0, murdVel.Y * 0.05, 0)
+                    bypassCFrame = CFrame.new(originPos, predictedPos)
+                else
+                    -- If Murderer is stationary or jumping in place, offset behind CFrame LookVector
+                    local originPos = (murdererHrp.CFrame * CFrame.new(0, 0, -(avatarRadius + 1.2))).Position
+                    bypassCFrame = CFrame.new(originPos, predictedPos)
+                end
                 
                 local args = {
-                    CFrame.new(originBypass.Position, predictedPos),
+                    bypassCFrame,
                     murdererHrp.CFrame
                 }
                 
@@ -1266,7 +1292,6 @@ local function getSelectedCoin()
             local distToPlayer = (rootPart.Position - coin.Position).Magnitude
             local distToMurd = murdHrp and (murdHrp.Position - coin.Position).Magnitude or 500
 
-            -- Safe zone criteria: do not pick coins within 35 studs of Murderer
             if distToMurd > 35 then
                 local score = (1000 - distToPlayer) + (distToMurd * 0.5)
                 if score > bestScore then
@@ -1279,7 +1304,6 @@ local function getSelectedCoin()
         if bestCoin then
             return bestCoin
         end
-        -- Fallback to closest if no safe optimal coin was found
         coinMode = "Closest"
     end
 
@@ -1372,7 +1396,6 @@ end
 local function handleStuckCombat()
     if isExecutingCombat then return end
 
-    -- Check if 11 seconds have passed since role assignment
     if rolesAssignedTime == 0 or (tick() - rolesAssignedTime < 11) then
         return
     end
@@ -1626,7 +1649,7 @@ pcall(function()
         local remote = ReplicatedStorage:FindFirstChild(remoteName, true)
         if remote and remote:IsA("RemoteEvent") then
             remote.OnClientEvent:Connect(function(...)
-                rolesAssignedTime = tick() -- Record role selection time
+                rolesAssignedTime = tick()
                 local args = {...}
                 for _, arg in ipairs(args) do
                     if type(arg) == "table" then
@@ -1787,7 +1810,7 @@ end)
 
 pcall(function()
     ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("PlayerDataChanged", 5).OnClientEvent:Connect(function(data)
-        rolesAssignedTime = tick() -- Also update timer on gameplay state updates
+        rolesAssignedTime = tick()
         if type(data) == "table" then
             for k, v in pairs(data) do
                 local targetPlr = Players:GetPlayerByUserId(tonumber(k) or 0) or Players:FindFirstChild(tostring(k))
@@ -2203,7 +2226,7 @@ FlingTab:CreateSlider({
     Flag = "FlingReturnSlider",
     Callback = function(Value)
         if Value >= 40 then
-            flingReturnSeconds = 999 -- Infinite
+            flingReturnSeconds = 999
         else
             flingReturnSeconds = Value
         end
