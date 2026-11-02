@@ -1,7 +1,16 @@
 --[[
-    Project: Ultimate MM2 Hub (Universal Hitbox Bypass + Velocity Predictor + Optimal Farm) | Luaroblox_helper
+    Project: Ultimate MM2 Hub (10/10 Anti-Kick Farm + Keybinds + AutoRejoin + Universal Bypass) | Luaroblox_helper
     Language: English
 ]]
+
+-- --- QUEUE_ON_TELEPORT SUPPORT --- --
+if syn and syn.queue_on_teleport then
+    syn.queue_on_teleport(game:HttpGet("https://raw.githubusercontent.com/COOLGUY24-ggs/Mm2-coinfarm/refs/heads/main/all%20in%20one"))
+elseif queue_on_teleport then
+    queue_on_teleport(game:HttpGet("https://raw.githubusercontent.com/COOLGUY24-ggs/Mm2-coinfarm/refs/heads/main/all%20in%20one"))
+elseif fluxus and fluxus.queue_on_teleport then
+    fluxus.queue_on_teleport(game:HttpGet("https://raw.githubusercontent.com/COOLGUY24-ggs/Mm2-coinfarm/refs/heads/main/all%20in%20one"))
+end
 
 local Rayfield = nil
 local success = false
@@ -25,27 +34,49 @@ if not success or not Rayfield then
     error("All Rayfield CDNs failed to load! Check your executor's internet/HttpGet support.")
 end
 
+-- --- AUTO REJOIN IF KICKED / DISCONNECTED --- --
+local TeleportService = game:GetService("TeleportService")
+local CoreGui = game:GetService("CoreGui")
+
+task.spawn(function()
+    pcall(function()
+        local errorPrompt = CoreGui:FindFirstChild("RobloxPromptGui", true)
+        if errorPrompt then
+            errorPrompt.DescendantAdded:Connect(function(subChild)
+                if subChild.Name == "ErrorTitle" then
+                    task.wait(2)
+                    TeleportService:Teleport(game.PlaceId, game:GetService("Players").LocalPlayer)
+                end
+            end)
+        end
+    end)
+end)
+
+game:GetService("GuiService").ErrorMessageChanged:Connect(function()
+    task.wait(2)
+    TeleportService:Teleport(game.PlaceId, game:GetService("Players").LocalPlayer)
+end)
+
 local Window = Rayfield:CreateWindow({
-    Name = "Ultimate MM2 Hub",
+    Name = "Ultimate MM2 Hub [Pro Edition]",
     LoadingTitle = "Loading Ultimate MM2 Hub...",
     LoadingSubtitle = "by Luaroblox_helper",
     ConfigurationSaving = {
         Enabled = true,
         FolderName = "LuarobloxHelperMM2",
-        FileName = "UltimateMM2Config"
+        FileName = "UltimateMM2Config_Pro"
     },
     KeySystem = false,
 })
 
--- Tabs very tuff 
+-- Tabs
 local CombatTab = Window:CreateTab("Toggles", 4483362458)
 local FarmTab = Window:CreateTab("Coin Farm", 4483362458)
 local KillTab = Window:CreateTab("Kill Tab", 4483362458)
 local FlingTab = Window:CreateTab("Fling", 4483362458)
 local MiscTab = Window:CreateTab("Misc", 4483345998)
 
--- add la peace
-local infoText = "💡 Hold the shoot button for far mode and double click to permanently keep it there till u leave"
+local infoText = "💡 Hold shoot for far mode, double click buttons to lock. Anti-kick farm & auto-rejoin active!"
 CombatTab:CreateLabel(infoText)
 FarmTab:CreateLabel(infoText)
 KillTab:CreateLabel(infoText)
@@ -61,7 +92,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- UI Positions & States 67 times
+-- UI Positions & States
 local savedGoldPosition = UDim2.new(0.5, -65, 0.7, -22)
 local goldJumpActive = false
 local goldLockedPermanently = false
@@ -99,25 +130,25 @@ local playerData = {}
 local playerESP = false
 local rolesAssignedTime = 0
 
--- Zone ESP Settings (12, 507, -28 with 350 studs radius)
+-- Zone ESP Settings
 local ZONE_CENTER = Vector3.new(12, 507, -28)
 local ZONE_RADIUS = 350
 
--- Coin Farm VAR
+-- Coin Farm Vars (Anti-Kick Optimized)
 local autoFarmEnabled = false
 local antiAfkEnabled = false
 local autoResetEnabled = false
 local undergroundFarmEnabled = false
-local tweenSpeed = 25 
+local tweenSpeed = 20 
 local coinMode = "Optimal"
 local antiAfkInterval = 15
-local maxAttemptsLimit = 10
+local maxAttemptsLimit = 8
 local failedAttempts = {}
-local MAX_DISTANCE = 1500
+local MAX_DISTANCE = 1200
 local isExecutingCombat = false
 local farModeEnabled = false
 
--- Fling VAR
+-- Fling Vars
 local targetPlayerName = ""
 local isFlinging = false
 local antiFlingEnabled = false
@@ -126,16 +157,15 @@ local autoTouchFlingEnabled = false
 local autoTouchFlingConnection = nil
 local flingReturnSeconds = 10
 
--- Misc VAR
+-- Misc Vars
 local noclipEnabled = false
 local noclipConnection = nil
-local infiniteJumpEnabled = false
 
 local function getRoot(char)
     return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
 end
 
--- --- DROPPED GUN ESP (TEXT & HIGHLIGHT) --- --
+-- --- DROPPED GUN ESP --- --
 local function applyDroppedGunESP(object)
     if object and (object.Name == "GunDrop" or object.Name == "Gundrop" or object.Name:lower() == "gundrop") then
         if not object:FindFirstChild("GunTextESP") then
@@ -168,11 +198,7 @@ local function applyDroppedGunESP(object)
             highlight.Parent = object
         end
 
-        Rayfield:Notify({
-            Title = "Gun Dropped!",
-            Content = "A gun was dropped on the map!",
-            Duration = 3
-        })
+        Rayfield:Notify({ Title = "Gun Dropped!", Content = "A gun was dropped on the map!", Duration = 3 })
     end
 end
 
@@ -184,14 +210,13 @@ workspace.DescendantAdded:Connect(function(child)
     applyDroppedGunESP(child)
 end)
 
--- --- REALISTIC PERMANENT FIRETOUCH AUTO PICKUP GUN --- --
+-- --- FIRETOUCH AUTO PICKUP GUN --- --
 task.spawn(function()
     while true do
         if autoPickupGunActive then
             pcall(function()
                 local char = LocalPlayer.Character
                 local hrp = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
-                
                 if hrp then
                     for _, object in ipairs(workspace:GetDescendants()) do
                         if object and (object.Name == "GunDrop" or object.Name == "Gundrop" or object.Name:lower() == "gundrop") then
@@ -212,13 +237,12 @@ task.spawn(function()
     end
 end)
 
--- --- DYNAMICCCCCCCC MOVEMENT PREDICTION FUNCTION (MOVING & JUMPING) --- --
+-- --- PREDICTION FUNCTION --- --
 local function getAdvancedPredictedPosition(shooterHrp, targetHrp, projectileSpeed)
     local targetPos = targetHrp.Position
     local targetVel = targetHrp.AssemblyLinearVelocity
     local shooterVel = shooterHrp.AssemblyLinearVelocity
 
-    -- Return stationary target position if barely moving
     if targetVel.Magnitude < 0.2 then
         return targetPos
     end
@@ -227,20 +251,9 @@ local function getAdvancedPredictedPosition(shooterHrp, targetHrp, projectileSpe
     local distance = (shooterHrp.Position - targetPos).Magnitude
     local timeOfFlight = distance / projectileSpeed
 
-    -- Dynamic scale for walking/running (approx 16 studs/sec) and jumping
-    local timeMultiplier = 1.0
-    if distance >= 35 then
-        timeMultiplier = 1.25
-    elseif distance >= 20 then
-        timeMultiplier = 1.05
-    else
-        timeMultiplier = 0.85
-    end
-
-    -- Include horizontal movement and Y-axis jumping/falling velocity
+    local timeMultiplier = (distance >= 35) and 1.25 or ((distance >= 20) and 1.05 or 0.85)
     local predictedPos = targetPos + (relativeVel * (timeOfFlight * timeMultiplier))
     
-    -- Gravity offset correction if the target is in mid-air jumping
     if math.abs(targetVel.Y) > 2 then
         predictedPos = predictedPos + Vector3.new(0, targetVel.Y * timeOfFlight * 0.5, 0)
     end
@@ -248,7 +261,7 @@ local function getAdvancedPredictedPosition(shooterHrp, targetHrp, projectileSpe
     return predictedPos
 end
 
--- --- BOMBOCLATTT HUB & COMBAT FUNCTIONS --- --
+-- --- BOMB HUB & COMBAT FUNCTIONS --- --
 
 local function createGoldBombButton()
     if playerGui:FindFirstChild("GoldBombJumpGui") then
@@ -295,7 +308,7 @@ local function createGoldBombButton()
         end
     end)
 
-    game:GetService("UserInputService").InputChanged:Connect(function(i)
+    UserInputService.InputChanged:Connect(function(i)
         if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
             local delta = i.Position - dragStart
             btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
@@ -407,7 +420,7 @@ local function createFakeBombButton()
         end
     end)
 
-    game:GetService("UserInputService").InputChanged:Connect(function(i)
+    UserInputService.InputChanged:Connect(function(i)
         if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
             local delta = i.Position - dragStart
             btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
@@ -518,7 +531,7 @@ local function createPoolJumpButton()
         end
     end)
 
-    game:GetService("UserInputService").InputChanged:Connect(function(i)
+    UserInputService.InputChanged:Connect(function(i)
         if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
             local delta = i.Position - dragStart
             btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
@@ -621,7 +634,7 @@ local function createGunButton()
         end
     end)
 
-    game:GetService("UserInputService").InputChanged:Connect(function(i)
+    UserInputService.InputChanged:Connect(function(i)
         if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
             local delta = i.Position - dragStart
             btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
@@ -759,7 +772,76 @@ local function createGunButton()
     end)
 end
 
--- --- DYNAMIC SILENT WALL BYPASS BUTTON (STATIONARY + MOVING/JUMPING SUPPORT) --- --
+-- --- UNIVERSAL SILENT WALL BYPASS FUNCTION --- --
+local function executeCurveShoot()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+    if not hrp then return end
+
+    local gun = (char and char:FindFirstChild("Gun")) or (backpack and backpack:FindFirstChild("Gun"))
+    if not gun then
+        Rayfield:Notify({ Title = "Curve Shoot", Content = "No gun found in inventory!", Duration = 2 })
+        return
+    end
+
+    if backpack and backpack:FindFirstChild("Gun") then
+        for _, child in ipairs(char:GetChildren()) do if child:IsA("Tool") then child.Parent = backpack end end
+        backpack.Gun.Parent = char
+    end
+
+    local murdererHrp = nil
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local pChar = plr.Character
+            local pBackpack = plr:FindFirstChildOfClass("Backpack")
+            local pHum = pChar:FindFirstChildOfClass("Humanoid")
+            local pRoot = pChar:FindFirstChild("HumanoidRootPart")
+            
+            if pHum and pHum.Health > 0 and pRoot then
+                local hasKnife = pChar:FindFirstChild("Knife") or (pBackpack and pBackpack:FindFirstChild("Knife"))
+                if hasKnife then
+                    murdererHrp = pRoot
+                    break
+                end
+            end
+        end
+    end
+
+    if not murdererHrp then
+        Rayfield:Notify({ Title = "Curve Shoot", Content = "No Murderer found!", Duration = 2 })
+        return
+    end
+
+    local gunTool = char:FindFirstChild("Gun")
+    local shootRemote = gunTool and gunTool:FindFirstChild("Shoot")
+    if shootRemote then
+        local predictedPos = getAdvancedPredictedPosition(hrp, murdererHrp, 350)
+        local orientation, size = char:GetBoundingBox()
+        local avatarRadius = math.max(size.X, size.Z) / 2 + 0.5
+        local murdVel = murdererHrp.AssemblyLinearVelocity
+        local moveDir = Vector3.new(murdVel.X, 0, murdVel.Z)
+        
+        local bypassCFrame
+        if moveDir.Magnitude > 2 then
+            local moveDirectionNormalized = moveDir.Unit
+            local originPos = murdererHrp.Position + (moveDirectionNormalized * (avatarRadius + 1.2)) + Vector3.new(0, murdVel.Y * 0.05, 0)
+            bypassCFrame = CFrame.new(originPos, predictedPos)
+        else
+            local originPos = (murdererHrp.CFrame * CFrame.new(0, 0, -(avatarRadius + 1.2))).Position
+            bypassCFrame = CFrame.new(originPos, predictedPos)
+        end
+        
+        local args = {
+            bypassCFrame,
+            murdererHrp.CFrame
+        }
+        
+        pcall(function() shootRemote:FireServer(unpack(args)) end)
+        Rayfield:Notify({ Title = "Curve Shoot", Content = "Silent Wall Bypass executed successfully!", Duration = 2 })
+    end
+end
+
 local function createCurveShootButton()
     if playerGui:FindFirstChild("CurveShootButtonGui") then
         playerGui.CurveShootButtonGui:Destroy()
@@ -804,7 +886,7 @@ local function createCurveShootButton()
         end
     end)
 
-    game:GetService("UserInputService").InputChanged:Connect(function(i)
+    UserInputService.InputChanged:Connect(function(i)
         if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
             local delta = i.Position - dragStart
             btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
@@ -828,84 +910,7 @@ local function createCurveShootButton()
             lastClickTime = 0
         else
             lastClickTime = currentTime
-
-            local char = LocalPlayer.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
-            if not hrp then return end
-
-            local gun = (char and char:FindFirstChild("Gun")) or (backpack and backpack:FindFirstChild("Gun"))
-            if not gun then
-                btn.Text = "No gun!"
-                task.delay(1.5, function() if btn.Text == "No gun!" then btn.Text = "Silent Wall Bypass" end end)
-                return
-            end
-
-            if backpack and backpack:FindFirstChild("Gun") then
-                for _, child in ipairs(char:GetChildren()) do if child:IsA("Tool") then child.Parent = backpack end end
-                backpack.Gun.Parent = char
-            end
-
-            local murdererHrp = nil
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr ~= LocalPlayer and plr.Character then
-                    local pChar = plr.Character
-                    local pBackpack = plr:FindFirstChildOfClass("Backpack")
-                    local pHum = pChar:FindFirstChildOfClass("Humanoid")
-                    local pRoot = pChar:FindFirstChild("HumanoidRootPart")
-                    
-                    if pHum and pHum.Health > 0 and pRoot then
-                        local hasKnife = pChar:FindFirstChild("Knife") or (pBackpack and pBackpack:FindFirstChild("Knife"))
-                        if hasKnife then
-                            murdererHrp = pRoot
-                            break
-                        end
-                    end
-                end
-            end
-
-            if not murdererHrp then
-                btn.Text = "No Murd!"
-                task.delay(1.5, function() if btn.Text == "No Murd!" then btn.Text = "Silent Wall Bypass" end end)
-                return
-            end
-
-            local gunTool = char:FindFirstChild("Gun")
-            local shootRemote = gunTool and gunTool:FindFirstChild("Shoot")
-            if shootRemote then
-                -- Calculate full 3D dynamic predicted hit position
-                local predictedPos = getAdvancedPredictedPosition(hrp, murdererHrp, 350)
-                
-                -- Dynamic Avatar Size Offset
-                local orientation, size = char:GetBoundingBox()
-                local avatarRadius = math.max(size.X, size.Z) / 2 + 0.5
-                
-                -- Determine velocity orientation (moving vs stationary)
-                local murdVel = murdererHrp.AssemblyLinearVelocity
-                local moveDir = Vector3.new(murdVel.X, 0, murdVel.Z)
-                
-                local bypassCFrame
-                if moveDir.Magnitude > 2 then
-                    -- If Murderer is walking/running (approx 16 studs/sec), offset bullet origin along movement vector
-                    local moveDirectionNormalized = moveDir.Unit
-                    local originPos = murdererHrp.Position + (moveDirectionNormalized * (avatarRadius + 1.2)) + Vector3.new(0, murdVel.Y * 0.05, 0)
-                    bypassCFrame = CFrame.new(originPos, predictedPos)
-                else
-                    -- If Murderer is stationary or jumping in place, offset behind CFrame LookVector
-                    local originPos = (murdererHrp.CFrame * CFrame.new(0, 0, -(avatarRadius + 1.2))).Position
-                    bypassCFrame = CFrame.new(originPos, predictedPos)
-                end
-                
-                local args = {
-                    bypassCFrame,
-                    murdererHrp.CFrame
-                }
-                
-                pcall(function() shootRemote:FireServer(unpack(args)) end)
-                
-                btn.Text = "Bypassed!"
-                task.delay(1.5, function() if btn.Text == "Bypassed!" then btn.Text = "Silent Wall Bypass" end end)
-            end
+            executeCurveShoot()
         end
     end)
 end
@@ -954,7 +959,7 @@ local function createBuffedShootButton()
         end
     end)
 
-    game:GetService("UserInputService").InputChanged:Connect(function(i)
+    UserInputService.InputChanged:Connect(function(i)
         if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
             local delta = i.Position - dragStart
             btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
@@ -1103,7 +1108,7 @@ local function createFlickShootButton()
         end
     end)
 
-    game:GetService("UserInputService").InputChanged:Connect(function(i)
+    UserInputService.InputChanged:Connect(function(i)
         if dragging and not locked and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
             local delta = i.Position - dragStart
             btn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
@@ -1175,10 +1180,8 @@ local function createFlickShootButton()
             local shootRemote = gunTool and gunTool:FindFirstChild("Shoot")
             if shootRemote then
                 local oldCamCFrame = Camera.CFrame
-                
                 local predictedPos = getAdvancedPredictedPosition(hrp, murdererHrp, 350)
                 local targetCFrame = CFrame.new(Camera.CFrame.Position, predictedPos)
-                
                 Camera.CFrame = targetCFrame
 
                 local startPosCFrame = gunTool:FindFirstChild("Handle") and gunTool.Handle.CFrame or hrp.CFrame
@@ -1451,6 +1454,7 @@ local function handleStuckCombat()
     isExecutingCombat = false
 end
 
+-- Anti-Kick Optimized Auto Coin Farm Loop
 task.spawn(function()
     while true do
         if autoFarmEnabled and not isExecutingCombat then
@@ -1458,7 +1462,7 @@ task.spawn(function()
                 local currentCoins = getCollectedCoins()
                 if currentCoins >= 40 then
                     autoFarmEnabled = false
-                    Rayfield:Notify({ Title = "Auto Farm Completed", Content = "Reached 40 collected coins!", Duration = 5 })
+                    Rayfield:Notify({ Title = "Auto Farm Completed", Content = "Reached 40 collected coins safely!", Duration = 5 })
                     return
                 end
 
@@ -1467,7 +1471,7 @@ task.spawn(function()
                     coin = getSelectedCoin()
                     if not coin or not coin.Parent or not coin:IsDescendantOf(workspace) then
                         coin = nil
-                        task.wait(0.2)
+                        task.wait(0.3)
                     end
                 end
 
@@ -1475,8 +1479,8 @@ task.spawn(function()
                     local targetPosKey = tostring(math.floor(coin.Position.X)) .. "_" .. tostring(math.floor(coin.Position.Y)) .. "_" .. tostring(math.floor(coin.Position.Z))
                     
                     if undergroundFarmEnabled then
-                        local belowCoinCFrame = coin.CFrame * CFrame.new(0, -5, 0)
-                        local reached = smoothTweenToPosition(belowCoinCFrame, 1.5, coin)
+                        local belowCoinCFrame = coin.CFrame * CFrame.new(0, -3, 0)
+                        local reached = smoothTweenToPosition(belowCoinCFrame, 1.0, coin)
                         if not reached or not coin or not coin.Parent then return end
                         
                         local char = LocalPlayer.Character
@@ -1484,18 +1488,15 @@ task.spawn(function()
                         if not root then return end
 
                         root.CFrame = belowCoinCFrame
-                        task.wait(0.05)
+                        task.wait(0.08)
 
-                        reached = smoothTweenToPosition(coin.CFrame, 1.5, coin)
+                        reached = smoothTweenToPosition(coin.CFrame, 1.0, coin)
                         if not reached or not coin or not coin.Parent then return end
                         
                         root.CFrame = coin.CFrame
-                        task.wait(0.05)
-
-                        smoothTweenToPosition(belowCoinCFrame, 1.5, nil)
-                        root.CFrame = belowCoinCFrame
+                        task.wait(0.08)
                     else
-                        local reached = smoothTweenToPosition(coin.CFrame, 1.5, coin)
+                        local reached = smoothTweenToPosition(coin.CFrame, 1.0, coin)
                         if not reached or not coin or not coin.Parent then return end
                         
                         local char = LocalPlayer.Character
@@ -1503,7 +1504,7 @@ task.spawn(function()
                         if not root then return end
 
                         root.CFrame = coin.CFrame
-                        task.wait(0.1)
+                        task.wait(0.15) -- Humanized delay to prevent anti-cheat speed/teleport kicks
                     end
 
                     if coin and coin.Parent and coin:IsDescendantOf(workspace) then
@@ -1516,11 +1517,11 @@ task.spawn(function()
                         failedAttempts[targetPosKey] = nil
                     end
                 else
-                    task.wait(0.2)
+                    task.wait(0.3)
                 end
             end)
         end
-        task.wait(0.1)
+        task.wait(0.15)
     end
 end)
 
@@ -1905,6 +1906,16 @@ CombatTab:CreateToggle({
     end,
 })
 
+CombatTab:CreateKeybind({
+    Name = "Silent Wall Bypass Keybind",
+    CurrentKeybind = "Q",
+    HoldToInteract = false,
+    Flag = "CurveShootKeybind",
+    Callback = function(Keybind)
+        executeCurveShoot()
+    end,
+})
+
 CombatTab:CreateToggle({
     Name = "buffed shoot murderer",
     CurrentValue = false,
@@ -1946,12 +1957,12 @@ CombatTab:CreateToggle({
 })
 
 FarmTab:CreateToggle({
-    Name = "Auto Coin Farm (Stops at 40)",
+    Name = "Auto Coin Farm (Safe Anti-Kick)",
     CurrentValue = false,
     Flag = "AutoCoinFarm",
     Callback = function(Value)
         autoFarmEnabled = Value
-        Rayfield:Notify({ Title = "Auto Farm", Content = Value and "Coin farm started!" or "Coin farm stopped.", Duration = 3 })
+        Rayfield:Notify({ Title = "Auto Farm", Content = Value and "Anti-kick coin farm started!" or "Coin farm stopped.", Duration = 3 })
     end,
 })
 
@@ -1996,10 +2007,10 @@ FarmTab:CreateDropdown({
 })
 
 FarmTab:CreateSlider({
-    Name = "Farm Speed (Tween)",
-    Range = {10, 30},
+    Name = "Farm Speed (Tween Safe)",
+    Range = {10, 25},
     Increment = 1,
-    CurrentValue = 25,
+    CurrentValue = 20,
     Suffix = "studs/s",
     Flag = "FarmSpeed",
     Callback = function(Value)
@@ -2398,3 +2409,6 @@ MiscTab:CreateToggle({
         end
     end,
 })
+
+-- Load configuration settings automatically
+Rayfield:LoadConfiguration()
