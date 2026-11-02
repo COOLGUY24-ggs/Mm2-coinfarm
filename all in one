@@ -123,6 +123,7 @@ local antiFlingEnabled = false
 local antiFlingConnection = nil
 local autoTouchFlingEnabled = false
 local autoTouchFlingConnection = nil
+local flingReturnSeconds = 10 -- Default 10 seconds (999 means infinite)
 
 -- Misc Vars
 local noclipEnabled = false
@@ -534,18 +535,18 @@ local function createPoolJumpButton()
             lastClickTime = 0
         else
             lastClickTime = currentTime
-        end
 
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            task.spawn(function()
-                for i = 1, 15 do
-                    hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(45), 0)
-                    task.wait(0.02)
-                end
-                hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, poolJumpHeight, hrp.AssemblyLinearVelocity.Z)
-            end)
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                task.spawn(function()
+                    for i = 1, 15 do
+                        hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(45), 0)
+                        task.wait(0.02)
+                    end
+                    hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, poolJumpHeight, hrp.AssemblyLinearVelocity.Z)
+                end)
+            end
         end
     end)
 end
@@ -726,7 +727,7 @@ local function createGunButton()
                         task.wait(0.1)
 
                         local gunTool = char:FindFirstChild("Gun")
-                        local shootRemote = gunTool:FindFirstChild("Shoot")
+                        local shootRemote = gunTool and gunTool:FindFirstChild("Shoot")
                         if shootRemote then
                             local startPosCFrame = gunTool:FindFirstChild("Handle") and gunTool.Handle.CFrame or hrp.CFrame
                             
@@ -751,7 +752,7 @@ local function createGunButton()
     end)
 end
 
--- --- SILENT WALL BYPASS BUTTON (GEEN TELEPORT) --- --
+-- --- SILENT WALL BYPASS BUTTON --- --
 local function createCurveShootButton()
     if playerGui:FindFirstChild("CurveShootButtonGui") then
         playerGui.CurveShootButtonGui:Destroy()
@@ -1511,8 +1512,15 @@ local function executeFlingUntilDead(targetChar)
     
     task.spawn(function()
         local connection
+        local startTime = tick()
         connection = RunService.Heartbeat:Connect(function()
             if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("Humanoid") or LocalPlayer.Character.Humanoid.Health <= 0 then
+                connection:Disconnect()
+                return
+            end
+
+            -- Check if return time limit is reached (if not infinite)
+            if flingReturnSeconds < 999 and (tick() - startTime >= flingReturnSeconds) then
                 connection:Disconnect()
                 return
             end
@@ -1556,7 +1564,7 @@ local function executeFlingUntilDead(targetChar)
         
         if previousAntiFlingState then toggleAntiFling(true) end
         isFlinging = false
-        Rayfield:Notify({ Title = "Target Eliminated", Content = "Target successfully flung!", Duration = 3 })
+        Rayfield:Notify({ Title = "Fling Stopped", Content = "Fling action completed or returned!", Duration = 3 })
     end)
 end
 
@@ -2132,6 +2140,22 @@ FlingTab:CreateToggle({
     Flag = "AntiFlingToggle",
     Callback = function(Value)
         toggleAntiFling(Value)
+    end,
+})
+
+FlingTab:CreateSlider({
+    Name = "Fling Return Time",
+    Range = {10, 40},
+    Increment = 10,
+    CurrentValue = 10,
+    Suffix = "s (40 = Infinite)",
+    Flag = "FlingReturnSlider",
+    Callback = function(Value)
+        if Value >= 40 then
+            flingReturnSeconds = 999 -- Infinite
+        else
+            flingReturnSeconds = Value
+        end
     end,
 })
 
