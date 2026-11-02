@@ -97,6 +97,7 @@ local autoPickupGunActive = false
 -- Server Data ESP Vars
 local playerData = {}
 local playerESP = false
+local rolesAssignedTime = 0 -- Track when roles were assigned for 11s timer
 
 -- Zone ESP Settings (12, 507, -28 with 350 studs radius)
 local ZONE_CENTER = Vector3.new(12, 507, -28)
@@ -108,7 +109,7 @@ local antiAfkEnabled = false
 local autoResetEnabled = false
 local undergroundFarmEnabled = false
 local tweenSpeed = 25 
-local coinMode = "Closest"
+local coinMode = "Optimal"
 local antiAfkInterval = 15
 local maxAttemptsLimit = 10
 local failedAttempts = {}
@@ -123,7 +124,7 @@ local antiFlingEnabled = false
 local antiFlingConnection = nil
 local autoTouchFlingEnabled = false
 local autoTouchFlingConnection = nil
-local flingReturnSeconds = 10 -- Default 10 seconds (999 means infinite)
+local flingReturnSeconds = 10
 
 -- Misc Vars
 local noclipEnabled = false
@@ -1220,6 +1221,23 @@ local function isBlacklistedPosition(pos)
     return (Vector3.new(pos.X, pos.Y, pos.Z) - blacklistedCenter).Magnitude <= 25
 end
 
+local function getMurdererHrp()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local pChar = plr.Character
+            local pBackpack = plr:FindFirstChildOfClass("Backpack")
+            local pRoot = pChar:FindFirstChild("HumanoidRootPart")
+            if pRoot then
+                local hasKnife = pChar:FindFirstChild("Knife") or (pBackpack and pBackpack:FindFirstChild("Knife"))
+                if hasKnife then
+                    return pRoot
+                end
+            end
+        end
+    end
+    return nil
+end
+
 local function getSelectedCoin()
     local character = LocalPlayer.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
@@ -1238,6 +1256,32 @@ local function getSelectedCoin()
     end
 
     if #coinList == 0 then return nil end
+
+    if coinMode == "Optimal" then
+        local murdHrp = getMurdererHrp()
+        local bestCoin = nil
+        local bestScore = -math.huge
+
+        for _, coin in ipairs(coinList) do
+            local distToPlayer = (rootPart.Position - coin.Position).Magnitude
+            local distToMurd = murdHrp and (murdHrp.Position - coin.Position).Magnitude or 500
+
+            -- Safe zone criteria: do not pick coins within 35 studs of Murderer
+            if distToMurd > 35 then
+                local score = (1000 - distToPlayer) + (distToMurd * 0.5)
+                if score > bestScore then
+                    bestScore = score
+                    bestCoin = coin
+                end
+            end
+        end
+
+        if bestCoin then
+            return bestCoin
+        end
+        -- Fallback to closest if no safe optimal coin was found
+        coinMode = "Closest"
+    end
 
     if coinMode == "Closest" then
         local nearestCoin = nil
@@ -1327,6 +1371,12 @@ end
 
 local function handleStuckCombat()
     if isExecutingCombat then return end
+
+    -- Check if 11 seconds have passed since role assignment
+    if rolesAssignedTime == 0 or (tick() - rolesAssignedTime < 11) then
+        return
+    end
+
     isExecutingCombat = true
 
     local character = LocalPlayer.Character
@@ -1519,7 +1569,6 @@ local function executeFlingUntilDead(targetChar)
                 return
             end
 
-            -- Check if return time limit is reached (if not infinite)
             if flingReturnSeconds < 999 and (tick() - startTime >= flingReturnSeconds) then
                 connection:Disconnect()
                 return
@@ -1577,6 +1626,7 @@ pcall(function()
         local remote = ReplicatedStorage:FindFirstChild(remoteName, true)
         if remote and remote:IsA("RemoteEvent") then
             remote.OnClientEvent:Connect(function(...)
+                rolesAssignedTime = tick() -- Record role selection time
                 local args = {...}
                 for _, arg in ipairs(args) do
                     if type(arg) == "table" then
@@ -1737,6 +1787,7 @@ end)
 
 pcall(function()
     ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("PlayerDataChanged", 5).OnClientEvent:Connect(function(data)
+        rolesAssignedTime = tick() -- Also update timer on gameplay state updates
         if type(data) == "table" then
             for k, v in pairs(data) do
                 local targetPlr = Players:GetPlayerByUserId(tonumber(k) or 0) or Players:FindFirstChild(tostring(k))
@@ -1891,7 +1942,7 @@ FarmTab:CreateToggle({
 })
 
 FarmTab:CreateToggle({
-    Name = "Auto Reset when Stuck",
+    Name = "Auto Reset when Stuck (11s delay after roles)",
     CurrentValue = false,
     Flag = "AutoResetStuck",
     Callback = function(Value)
@@ -1913,11 +1964,11 @@ FarmTab:CreateSlider({
 
 FarmTab:CreateDropdown({
     Name = "Coin Mode",
-    Options = {"Closest", "Random", "Farthest"},
-    CurrentOption = "Closest",
+    Options = {"Optimal", "Closest", "Random", "Farthest"},
+    CurrentOption = "Optimal",
     Flag = "CoinModeDropdown",
     Callback = function(Option)
-        coinMode = type(Option) == "table" and (Option[1] or "Closest") or tostring(Option)
+        coinMode = type(Option) == "table" and (Option[1] or "Optimal") or tostring(Option)
     end,
 })
 
